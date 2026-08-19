@@ -40,12 +40,7 @@ def run_flask():
 
 # Токен НЕ вставляй прямо в код.
 # На Render создай переменную окружения BOT_TOKEN.
-TOKEN = os.environ.get("BOT_TOKEN")
-
-if not TOKEN:
-    raise RuntimeError(
-        "Не задан BOT_TOKEN. Добавьте токен бота в переменные окружения Render."
-    )
+TOKEN = "8957734826:AAHIfu5a1w73uXvz1LIgMMDRvCVFju2YpSY"
 
 bot = telebot.TeleBot(TOKEN)
 
