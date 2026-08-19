@@ -18,7 +18,7 @@ def run_flask():
     app.run(host='0.0.0.0', port=port)
 
 # Токен твоего бота
-TOKEN = "ТВОЙ_ТОКЕН_БОТА"
+TOKEN = "8957734826:AAGqRDleUdLICnkjuabbhWppz807q8JA9js"
 bot = telebot.TeleBot(TOKEN)
 
 # Потокобезопасные блокировки и хранилища
