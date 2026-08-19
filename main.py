@@ -420,3 +420,14 @@ if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
     print("Бот запущен...")
     bot.infinity_polling(skip_pending=True)
+    
+# Обработка нажатия на обычную кнопку «Правила ввода ответа»
+@bot.message_handler(func=lambda message: message.text == "Правила ввода ответа")
+def handle_rules_button(message):
+    rules_text = (
+        "📜 **Правила ввода ответа:**\n\n"
+        "1. Четко и ясно формулируйте мысли.\n"
+        "2. Следуйте инструкциям обзвона.\n"
+        "3. Не нарушайте регламент."
+    )
+    bot.send_message(message.chat.id, rules_text, parse_mode="Markdown")
