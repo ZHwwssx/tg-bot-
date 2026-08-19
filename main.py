@@ -18,7 +18,7 @@ def run_flask():
     app.run(host='0.0.0.0', port=port)
 
 # Токен твоего бота
-TOKEN = "8957734826:AAGqRDleUdLICnkjuabbhWppz807q8JA9js"
+TOKEN = "ТВОЙ_ТОКЕН_БОТА"
 bot = telebot.TeleBot(TOKEN)
 
 # Потокобезопасные блокировки и хранилища
@@ -27,10 +27,8 @@ user_data = {}
 waiting_for_key = set()
 
 # --- БАЗА КЛЮЧЕЙ ---
-# Универсальный ключ (подходит всегда)
 UNIVERSAL_KEY = "7879"
 
-# 50 одноразовых ключей (каждый можно использовать ровно 1 раз)
 VALID_KEYS = {
     "47a9f2", "88b3c1", "12e4f5", "99h4g6", "33k2l9",
     "55z7x8", "19q3w2", "66e5r4", "77t8y1", "22u9i0",
@@ -44,7 +42,6 @@ VALID_KEYS = {
     "34q5w6", "69e7r8", "53t9y2", "82u4i1", "27o3p8"
 }
 
-# Список уже использованных одноразовых ключей
 USED_KEYS = set()
 
 # --- ВАРИАНТЫ ОТВЕТОВ ---
@@ -195,12 +192,28 @@ def show_main_welcome(chat_id):
     except Exception:
         pass
 
+# Обработка обычной кнопки снизу «Правила ввода ответа»
+@bot.message_handler(func=lambda message: message.text == "Правила ввода ответа")
+def handle_rules_reply_button(message):
+    chat_id = message.chat.id
+    rules_text = (
+        "📜 **Правила ввода ответа:**\n\n"
+        "• Если ваш ответ **«нет»**, то ответ будет засчитан только так: **нет, нельзя, не можно, запрещено**. Другие бот засчитает как за ОШИБКУ.\n\n"
+        "• Если ваш ответ **«да»**, то ответ будет засчитан только так: **Да, Можно, Конечно, Разрешено**.\n\n"
+        "• Если ваш ответ осуществляется в числовых, то ответ будет засчитан только так: **2+, не менее 2, 2 и больше, 2, два**. Касается абсолютно всех чисел."
+    )
+    try:
+        bot.send_message(chat_id, rules_text, parse_mode="Markdown")
+    except Exception:
+        pass
+
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     chat_id = call.message.chat.id
     message_id = call.message.message_id
     data = call.data
 
+    # Обязательно гасим кружок загрузки на инлайн-кнопке
     try:
         bot.answer_callback_query(call.id)
     except Exception:
@@ -213,9 +226,9 @@ def callback_handler(call):
             pass
         rules_text = (
             "📌 **Правила ввода ответа:**\n\n"
-            "• Если ваш ответ **«нет»**, то ответ будет засчитан только так: **нет, нельзя, не можно, запрещено**. Другие бот засчитает как за ОШИБКУ.\n\n"
-            "• Если ваш ответ **«да»**, то ответ будет засчитан только так: **Да, Можно, Конечно, Разрешено**.\n\n"
-            "• Если ваш ответ осуществляется в числовых, то ответ будет засчитан только так: **2+, не менее 2, 2 и больше, 2, два**. Касается абсолютно всех чисел.\n\n"
+            "• Если ваш ответ **«нет»**, то ответ будет засчитан только так: **нет, нельзя, не можно, запрещено**.\n"
+            "• Если ваш ответ **«да»**, то ответ будет засчитан только так: **Да, Можно, Конечно, Разрешено**.\n"
+            "• Если ваш ответ в числовых значениях: **2+, не менее 2, 2 и больше, 2, два**.\n\n"
             "👇 Нажмите кнопку ниже, чтобы перейти к выбору фракции:"
         )
         markup = InlineKeyboardMarkup()
@@ -374,7 +387,7 @@ def fallback_handler(message):
         return
     with data_lock:
         is_active = chat_id in user_data and user_data[chat_id].get("started")
-    if not is_active:
+    if not is_active and message.text != "Правила ввода ответа":
         try:
             bot.send_message(chat_id, "Для начала работы введите /start")
         except Exception:
@@ -420,14 +433,3 @@ if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
     print("Бот запущен...")
     bot.infinity_polling(skip_pending=True)
-    
-# Обработка нажатия на обычную кнопку «Правила ввода ответа»
-@bot.message_handler(func=lambda message: message.text == "Правила ввода ответа")
-def handle_rules_button(message):
-    rules_text = (
-        "📜 **Правила ввода ответа:**\n\n"
-        "1. Четко и ясно формулируйте мысли.\n"
-        "2. Следуйте инструкциям обзвона.\n"
-        "3. Не нарушайте регламент."
-    )
-    bot.send_message(message.chat.id, rules_text, parse_mode="Markdown")
