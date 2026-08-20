@@ -626,7 +626,7 @@ def get_factions_keyboard():
         ),
         InlineKeyboardButton(
             "Рп термины",
-            callback_data="fact_Рп термины",
+            callback_data="fact_rp_terms",
         ),
     )
 
@@ -863,7 +863,7 @@ def callback_handler(call):
             "Служба Спасения",
         }
 
-        if faction_name == "Рп термины":
+        if faction_name == "rp_terms":
             questions = RP_QUESTIONS
         elif faction_name in government_factions:
             questions = GOV_QUESTIONS
