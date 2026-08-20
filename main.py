@@ -1174,9 +1174,11 @@ def finish_exam(chat_id):
 # =========================
 
 if __name__ == "__main__":
+    # Flask должен работать в обычном потоке, иначе Render завершит
+    # процесс сразу после установки Telegram webhook.
     threading.Thread(
         target=run_flask,
-        daemon=True,
+        daemon=False,
     ).start()
 
     logger.info("Бот запущен")
