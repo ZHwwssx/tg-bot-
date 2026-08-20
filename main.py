@@ -834,7 +834,7 @@ def get_start_exam_keyboard():
 # Приветствие
 # =========================
 
-def show_main_welcome(chat_id):
+def show_main_welcome(chat_id, with_keyboard=True):
     text = (
         "Приветствую. Данный бот создал Mike_Tysonn, "
         "чтобы подготовить тебя к обзвону.\n\n"
@@ -848,7 +848,7 @@ def show_main_welcome(chat_id):
                 chat_id,
                 photo,
                 caption=text,
-                reply_markup=get_rules_keyboard(),
+                reply_markup=get_rules_keyboard() if with_keyboard else None,
             )
             return
 
@@ -856,7 +856,7 @@ def show_main_welcome(chat_id):
         safe_send(
             chat_id,
             text,
-            reply_markup=get_rules_keyboard(),
+            reply_markup=get_rules_keyboard() if with_keyboard else None,
         )
 
     except Exception:
@@ -883,6 +883,8 @@ def send_welcome(message):
     with data_lock:
         user_data.pop(chat_id, None)
         waiting_for_key.add(chat_id)
+
+    show_main_welcome(chat_id, with_keyboard=False)
 
     safe_send(
         chat_id,
@@ -953,7 +955,11 @@ def handle_key_input(message):
             access_granted = False
 
     if access_granted:
-        show_main_welcome(chat_id)
+        safe_send(
+            chat_id,
+            "✅ Ключ принят.\n\nПеред началом нужно ознакомиться с правилами ввода ответа.",
+            reply_markup=get_rules_keyboard(),
+        )
     else:
         safe_send(
             chat_id,
