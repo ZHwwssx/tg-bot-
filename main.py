@@ -586,14 +586,89 @@ RP_QUESTIONS = [
 # =========================
 
 def get_rules_keyboard():
-    keyboard = InlineKeyboardMarkup()
+    keyboard = InlineKeyboardMarkup(row_width=1)
     keyboard.add(
         InlineKeyboardButton(
             "📜 Правила ввода ответа",
             callback_data="show_rules",
+        ),
+        InlineKeyboardButton(
+            "📖 Посмотреть ответы",
+            callback_data="show_answers",
+        ),
+    )
+    return keyboard
+
+
+def get_answers_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(
+        InlineKeyboardButton(
+            "Рп термины",
+            callback_data="show_rp_answers",
         )
     )
     return keyboard
+
+
+def get_rp_answers_text():
+    return (
+        "📖 <b>Ответы: РП-термины</b>\n\n"
+        "<b>Что такое ДМ? (Deathmatch)</b>\n"
+        "Ответ — убийство без причины\n\n"
+        "<b>Что такое ДБ? (DriveBy)</b>\n"
+        "Ответ — убийство машиной или с водительского места, убийство транспортом\n\n"
+        "<b>Что такое СК? (Spawn Kill)</b>\n"
+        "Ответ — убийство после появления, убийство на спавне\n\n"
+        "<b>Что такое ТК? (TeamKill)</b>\n"
+        "Ответ — убийство своих\n\n"
+        "<b>Что такое РП? (RolePlay)</b>\n"
+        "Ответ — игра по ролям\n\n"
+        "<b>Что такое МГ?</b>\n"
+        "Ответ — использование реальной информации в игре\n\n"
+        "<b>Что такое ГМ?</b>\n"
+        "Ответ — неуязвимость, режим бога\n\n"
+        "<b>Что такое ПГ? (PowerGaming)</b>\n"
+        "Ответ — воображение себя героем (драка с толпой или без оружия против вооруженного)\n\n"
+        "<b>Что такое РК? (RevengeKill)</b>\n"
+        "Ответ — возвращение на место смерти / месть\n\n"
+        "<b>Что такое БХ?</b>\n"
+        "Ответ — бег с прыжками для ускорения\n\n"
+        "<b>Что такое УК?</b>\n"
+        "Ответ — уголовный кодекс\n\n"
+        "<b>Что такое АК? (Академический/Административный Кодекс)</b>\n"
+        "Ответ — административный, академический кодекс\n\n"
+        "<b>Что такое ЗЗ?</b>\n"
+        "Ответ — зеленая зона (место, где запрещено насилие)\n\n"
+        "<b>Что такое ФР? (FastReloading)</b>\n"
+        "Ответ — баг с быстрой перезарядкой\n\n"
+        "<b>Что такое ФМ? (FastMoving)</b>\n"
+        "Ответ — баг с быстрым перемещением\n\n"
+        "<b>Что такое СХ?</b>\n"
+        "Ответ — чит на скорость\n\n"
+        "<b>Что такое ФФ? (FriendlyFire)</b>\n"
+        "Ответ — урон по своим\n\n"
+        "<b>Что такое ЦК? (CharacterKill)</b>\n"
+        "Ответ — убийство по рп с потерей персонажа\n\n"
+        "<b>Что такое УРП? (UnRolePlay)</b>\n"
+        "Ответ — уход от ролевой игры\n\n"
+        "<b>Что такое ТДМ?</b>\n"
+        "Ответ — командный бой\n\n"
+        "<b>Что такое МДМ?</b>\n"
+        "Ответ — массовое убийство без причины\n\n"
+        "<b>Что такое ОРП? (OffRolePlay)</b>\n"
+        "Ответ — уход от РП\n\n"
+        "<b>Что такое ЕПП? (Exploiting Pathing)</b>\n"
+        "Ответ — езда по полям\n\n"
+        "<b>Что такое ПК? (PlayerKill)</b>\n"
+        "Ответ — убийство по рп\n\n"
+        "<b>Что такое ФЦК? (FractionCharacterKill)</b>\n"
+        "Ответ — фракционное убийство персонажа\n\n"
+        "<b>Что такое OOC? (Out Of Character)</b>\n"
+        "Ответ — реальный мир\n\n"
+        "<b>Что такое IC? (In Character)</b>\n"
+        "Ответ — игровой мир"
+    )
 
 
 def get_factions_keyboard():
@@ -844,6 +919,25 @@ def callback_handler(call):
             parse_mode="HTML",
         )
 
+        return
+
+    # Просмотр правильных ответов
+    if data == "show_answers":
+        safe_delete(chat_id, message_id)
+        safe_send(
+            chat_id,
+            "Выбери раздел для ответов:",
+            reply_markup=get_answers_keyboard(),
+        )
+        return
+
+    if data == "show_rp_answers":
+        safe_delete(chat_id, message_id)
+        safe_send(
+            chat_id,
+            get_rp_answers_text(),
+            parse_mode="HTML",
+        )
         return
 
     # Выбор фракции
