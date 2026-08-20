@@ -840,37 +840,22 @@ def show_main_welcome(chat_id):
         "чтобы подготовить тебя к обзвону.\n\n"
         "Перед началом нужно ознакомиться с правилами ввода ответа."
     )
+    image_url = "https://raw.githubusercontent.com/ZHwwssx/tg-bot-/main/welcome_after_key.jpeg"
 
     try:
-        image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "welcome_after_key.jpeg")
-        with open(image_path, "rb") as photo:
-            bot.send_photo(
-                chat_id,
-                photo,
-                caption=text,
-                reply_markup=get_rules_keyboard(),
-            )
-            return
-
-    except FileNotFoundError:
-        safe_send(
+        bot.send_photo(
             chat_id,
-            text,
+            image_url,
+            caption=text,
             reply_markup=get_rules_keyboard(),
         )
-
     except Exception:
-        logger.exception(
-            "Ошибка показа приветствия в чате %s",
-            chat_id,
-        )
-
+        logger.exception("Ошибка показа приветствия в чате %s", chat_id)
         safe_send(
             chat_id,
             text,
             reply_markup=get_rules_keyboard(),
         )
-
 
 # =========================
 # Команда /start
