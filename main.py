@@ -842,7 +842,7 @@ def show_main_welcome(chat_id):
     )
 
     try:
-        image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "welcome.jpg")
+        image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "welcome_after_key.jpeg")
         with open(image_path, "rb") as photo:
             bot.send_photo(
                 chat_id,
