@@ -1017,6 +1017,25 @@ if __name__ == "__main__":
 
     logger.info("Бот запущен")
 
-    bot.infinity_polling(
-        skip_pending=True,
-    )
+    # Render может на короткое время запускать новую копию до остановки старой.
+    # В этом случае Telegram возвращает 409 Conflict. Не завершаем процесс,
+    # а ждём освобождения polling и пробуем снова.
+    while True:
+        try:
+            bot.infinity_polling(
+                skip_pending=True,
+            )
+            logger.warning("Polling остановлен, перезапускаем через 5 секунд")
+        except Exception as exc:
+            error_code = getattr(exc, "error_code", None)
+            error_text = str(exc)
+
+            if error_code == 409 or "terminated by other getUpdates request" in error_text:
+                logger.warning(
+                    "Telegram polling занят другой копией бота (409). "
+                    "Повтор через 10 секунд."
+                )
+                time.sleep(10)
+                continue
+
+            raise
