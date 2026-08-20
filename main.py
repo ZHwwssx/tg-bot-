@@ -5,7 +5,8 @@ import threading
 import time
 
 import telebot
-from flask import Flask
+from flask import Flask, request
+from telebot import types
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 
@@ -27,6 +28,18 @@ app = Flask(__name__)
 @app.route("/")
 def home():
     return "Bot is alive and running!"
+
+
+@app.route("/telegram-webhook", methods=["POST"])
+def telegram_webhook():
+    """Принимает обновления Telegram через webhook и передаёт их боту."""
+    try:
+        update = types.Update.de_json(request.get_data().decode("utf-8"))
+        bot.process_new_updates([update])
+        return "OK", 200
+    except Exception:
+        logger.exception("Ошибка обработки Telegram webhook")
+        return "Webhook error", 500
 
 
 def run_flask():
@@ -1168,25 +1181,19 @@ if __name__ == "__main__":
 
     logger.info("Бот запущен")
 
-    # Render может на короткое время запускать новую копию до остановки старой.
-    # В этом случае Telegram возвращает 409 Conflict. Не завершаем процесс,
-    # а ждём освобождения polling и пробуем снова.
-    while True:
-        try:
-            bot.infinity_polling(
-                skip_pending=True,
-            )
-            logger.warning("Polling остановлен, перезапускаем через 5 секунд")
-        except Exception as exc:
-            error_code = getattr(exc, "error_code", None)
-            error_text = str(exc)
+    external_url = (
+        os.environ.get("RENDER_EXTERNAL_URL")
+        or os.environ.get("PUBLIC_URL")
+    )
 
-            if error_code == 409 or "terminated by other getUpdates request" in error_text:
-                logger.warning(
-                    "Telegram polling занят другой копией бота (409). "
-                    "Повтор через 10 секунд."
-                )
-                time.sleep(10)
-                continue
-
-            raise
+    if external_url:
+        webhook_url = f"{external_url.rstrip('/')}/telegram-webhook"
+        bot.remove_webhook()
+        time.sleep(1)
+        bot.set_webhook(url=webhook_url)
+        logger.info("Telegram webhook включён: %s", webhook_url)
+    else:
+        logger.warning(
+            "RENDER_EXTERNAL_URL не найден, запускаем polling для локального режима"
+        )
+        bot.infinity_polling(skip_pending=True)
