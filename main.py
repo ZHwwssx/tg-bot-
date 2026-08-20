@@ -863,8 +863,10 @@ def callback_handler(call):
             "Служба Спасения",
         }
 
-        if faction_name == "rp_terms":
+        # Поддерживаем и новые, и уже отправленные старые кнопки.
+        if faction_name in {"rp_terms", "Рп термины"}:
             questions = RP_QUESTIONS
+            faction_name = "Рп термины"
         elif faction_name in government_factions:
             questions = GOV_QUESTIONS
         else:
