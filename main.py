@@ -808,6 +808,10 @@ def get_factions_keyboard():
             "Рп термины",
             callback_data="fact_rp_terms",
         ),
+        InlineKeyboardButton(
+            "⬅️ Назад к правилам и ответам",
+            callback_data="back_to_rules_menu",
+        ),
     )
 
     return keyboard
@@ -961,6 +965,16 @@ def callback_handler(call):
         bot.answer_callback_query(call.id)
     except Exception:
         logger.exception("Ошибка callback query")
+
+    # Вернуться к меню правил и ответов
+    if data == "back_to_rules_menu":
+        safe_delete(chat_id, message_id)
+        safe_send(
+            chat_id,
+            "Выберите раздел:",
+            reply_markup=get_rules_keyboard(),
+        )
+        return
 
     # Показать правила
     if data == "show_rules":
