@@ -40,7 +40,7 @@ def run_flask():
 
 # Токен НЕ вставляй прямо в код.
 # На Render создай переменную окружения BOT_TOKEN.
-TOKEN = "8957734826:AAHIfu5a1w73uXvz1LIgMMDRvCVFju2YpSY"
+TOKEN = os.environ["BOT_TOKEN"]
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -515,13 +515,15 @@ def show_main_welcome(chat_id):
     )
 
     try:
-        with open("welcome.jpg", "rb") as photo:
+        image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "welcome.jpg")
+        with open(image_path, "rb") as photo:
             bot.send_photo(
                 chat_id,
                 photo,
                 caption=text,
                 reply_markup=get_rules_keyboard(),
             )
+            return
 
     except FileNotFoundError:
         safe_send(
@@ -558,6 +560,27 @@ def send_welcome(message):
     safe_send(
         chat_id,
         "🔐 Введите ключ доступа для запуска бота:",
+    )
+
+
+@bot.message_handler(commands=["cancel"])
+def cancel_command(message):
+    chat_id = message.chat.id
+
+    with data_lock:
+        user_data.pop(chat_id, None)
+
+    if chat_id in waiting_for_key:
+        safe_send(
+            chat_id,
+            "Сначала введите ключ доступа. Для повторного запуска используйте /start",
+        )
+        return
+
+    safe_send(
+        chat_id,
+        "📁 Выберите фракцию для подготовки:",
+        reply_markup=get_factions_keyboard(),
     )
 
 
