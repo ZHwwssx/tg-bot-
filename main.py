@@ -697,6 +697,23 @@ def get_answers_keyboard():
             callback_data="show_gov_answers",
         )
     )
+    keyboard.add(
+        InlineKeyboardButton(
+            "⬅️ Назад",
+            callback_data="back_to_rules_menu",
+        )
+    )
+    return keyboard
+
+
+def get_answers_section_back_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(
+        InlineKeyboardButton(
+            "⬅️ Назад",
+            callback_data="back_to_answers_menu",
+        )
+    )
     return keyboard
 
 
@@ -1019,11 +1036,22 @@ def callback_handler(call):
         )
         return
 
+    # Вернуться из раздела ответов к выбору раздела
+    if data == "back_to_answers_menu":
+        safe_delete(chat_id, message_id)
+        safe_send(
+            chat_id,
+            "Выбери раздел для ответов:",
+            reply_markup=get_answers_keyboard(),
+        )
+        return
+
     if data == "show_rp_answers":
         safe_delete(chat_id, message_id)
         safe_send(
             chat_id,
             get_rp_answers_text(),
+            reply_markup=get_answers_section_back_keyboard(),
             parse_mode="HTML",
         )
         return
@@ -1033,16 +1061,23 @@ def callback_handler(call):
         safe_send(
             chat_id,
             get_opg_answers_text(),
+            reply_markup=get_answers_section_back_keyboard(),
             parse_mode="HTML",
         )
         return
 
     if data == "show_gov_answers":
         safe_delete(chat_id, message_id)
-        for answers_text in get_gov_answers_texts():
+        gov_answers = get_gov_answers_texts()
+        for index, answers_text in enumerate(gov_answers):
             safe_send(
                 chat_id,
                 answers_text,
+                reply_markup=(
+                    get_answers_section_back_keyboard()
+                    if index == len(gov_answers) - 1
+                    else None
+                ),
                 parse_mode="HTML",
             )
         return
