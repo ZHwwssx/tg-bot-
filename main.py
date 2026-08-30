@@ -333,9 +333,9 @@ def callback_handler(call):
         edit_review_buttons(source_message_id, waiting_keyboard(source_message_id))
         safe_send(
             chat_id,
-            "Напишите ответ одним сообщением. Он будет отправлен пользователю.",
+            "Нажмите «Ответить» на это сообщение и напишите ответ. Он будет отправлен пользователю.",
             reply_to_message_id=source_message_id,
-            reply_markup=types.ForceReply(selective=True),
+            reply_markup=types.ForceReply(selective=False),
         )
         return
     if data.startswith("back_application:"):
