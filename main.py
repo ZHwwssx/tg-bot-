@@ -400,13 +400,15 @@ def handle_reviewer_reply(message):
 
 
 if __name__ == "__main__":
-    threading.Thread(target=run_flask, daemon=True).start()
     external_url = os.environ.get("RENDER_EXTERNAL_URL")
     if external_url:
         webhook_url = f"{external_url.rstrip('/')}/telegram-webhook"
         bot.remove_webhook()
         bot.set_webhook(url=webhook_url)
         logger.info("Telegram webhook включён: %s", webhook_url)
+        # Render должен продолжать работать после установки webhook.
+        run_flask()
     else:
         logger.info("RENDER_EXTERNAL_URL не найден, запускаем polling")
+        threading.Thread(target=run_flask, daemon=True).start()
         bot.infinity_polling(skip_pending=True)
