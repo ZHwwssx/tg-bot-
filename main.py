@@ -310,31 +310,30 @@ def callback_handler(call):
         return
 
     if data.startswith("answer_application:"):
-          if chat_id != APPLICATION_GROUP_ID:
-              return
-          parts = data.split(":")
-          try:
-              source_message_id = int(parts[1])
-              callback_user_id = int(parts[2]) if len(parts) > 2 else 0
-          except (IndexError, ValueError):
-              return
-          with data_lock:
-              user_chat_id = application_by_message.get((chat_id, source_message_id))
-              if not user_chat_id and callback_user_id:
-                  user_chat_id = callback_user_id
-              if user_chat_id:
-                  pending_replies[(chat_id, call.from_user.id)] = {
-                      "user_chat_id": user_chat_id,
-                      "message_id": source_message_id,
-                  }
-          if not user_chat_id:
-              safe_send(chat_id, "Анкета не найдена. Начните новую анкету, если бот был перезапущен.")
-              return
-          edit_review_buttons(source_message_id, waiting_keyboard(source_message_id))
-          safe_send(chat_id, "Напишите ответ одним сообщением. Он будет отправлен пользователю.", reply_to_message_id=source_message_id)
-          return
-
-        if data.startswith("back_application:"):
+        if chat_id != APPLICATION_GROUP_ID:
+            return
+        parts = data.split(":")
+        try:
+            source_message_id = int(parts[1])
+            callback_user_id = int(parts[2]) if len(parts) > 2 else 0
+        except (IndexError, ValueError):
+            return
+        with data_lock:
+            user_chat_id = application_by_message.get((chat_id, source_message_id))
+            if not user_chat_id and callback_user_id:
+                user_chat_id = callback_user_id
+            if user_chat_id:
+                pending_replies[(chat_id, call.from_user.id)] = {
+                    "user_chat_id": user_chat_id,
+                    "message_id": source_message_id,
+                }
+        if not user_chat_id:
+            safe_send(chat_id, "Анкета не найдена. Начните новую анкету, если бот был перезапущен.")
+            return
+        edit_review_buttons(source_message_id, waiting_keyboard(source_message_id))
+        safe_send(chat_id, "Напишите ответ одним сообщением. Он будет отправлен пользователю.", reply_to_message_id=source_message_id)
+        return
+    if data.startswith("back_application:"):
         try:
             source_message_id = int(data.split(":", 1)[1])
         except ValueError:
