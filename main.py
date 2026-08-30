@@ -74,7 +74,7 @@ WELCOME_TEXT = (
     "Удачи.\n"
     "by. tt:SK_Kitezz"
 )
-FINAL_TEXT = "На этом все. Анкета передана Лидеру и Заместителю клана SK."
+FINAL_TEXT = "На этом все. Анкета передана Лидеру и Со-лидеру клана SK."
 VOICE_WARNING = (
     "⚠️ <b>WARNING:</b> Голосовое сообщение нужно для подтверждения возраста, "
     "а также чтобы заметить тебя при повторном входе в клан с другого аккаунта."
@@ -162,8 +162,8 @@ def reviewer_label(user_id):
     if LEADER_ID and user_id == LEADER_ID:
         return "Лидера клана SK"
     if DEPUTY_ID and user_id == DEPUTY_ID:
-        return "заместителя клана SK"
-    return "Лидера или заместителя клана SK"
+        return "со-лидера клана SK"
+    return "Лидера или со-лидера клана SK"
 
 
 def send_question(chat_id):
