@@ -343,7 +343,10 @@ def callback_handler(call):
         edit_review_buttons(source_message_id, review_keyboard(source_message_id))
 
 
-@bot.message_handler(func=lambda message: message.chat.id in application_states)
+@bot.message_handler(
+    func=lambda message: message.chat.id in application_states,
+    content_types=["text", "voice"],
+)
 def handle_application_input(message):
     chat_id = message.chat.id
     with data_lock:
@@ -354,7 +357,7 @@ def handle_application_input(message):
         title, prompt, kind = APPLICATION_QUESTIONS[index]
 
     if kind == "voice":
-        if not message.voice:
+        if not getattr(message, "voice", None):
             safe_send(chat_id, "Пожалуйста, отправь именно голосовое сообщение.", reply_markup=application_back_keyboard())
             return
         answer = {"type": "voice", "file_id": message.voice.file_id}
