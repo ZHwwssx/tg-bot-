@@ -113,6 +113,17 @@ def style_text(text):
     return f"<b>SK</b>\n\n{text}"
 
 
+def configure_bot_menu():
+    try:
+        bot.set_my_commands([
+            types.BotCommand("start", "Открыть главное меню"),
+        ])
+        bot.set_chat_menu_button(menu_button=types.MenuButtonCommands())
+        logger.info("Меню бота настроено")
+    except Exception:
+        logger.exception("Не удалось настроить меню бота")
+
+
 def safe_send(chat_id, text, **kwargs):
     try:
         kwargs.setdefault("parse_mode", "HTML")
@@ -747,6 +758,7 @@ def handle_reviewer_reply(message):
 
 
 if __name__ == "__main__":
+    configure_bot_menu()
     external_url = os.environ.get("RENDER_EXTERNAL_URL")
     if external_url:
         webhook_url = f"{external_url.rstrip('/')}/telegram-webhook"
