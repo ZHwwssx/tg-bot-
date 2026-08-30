@@ -69,12 +69,19 @@ APPLICATION_QUESTIONS = [
     ("Запиши голосовое сообщение", "Например, скажи своё имя и NickName.", "voice"),
 ]
 
+WELCOME_IMAGE_PATH = os.path.join(os.path.dirname(__file__), "assets", "sk_welcome.jpg")
 WELCOME_TEXT = (
-    "Приветствую. Ты тут что бы подать анкету на вступ в клан SK.\n\n"
-    "Удачи.\n"
-    "by. tt:SK_Kitezz"
+    "☠️ <b>SK CLAN</b>\n"
+    "━━━━━━━━━━━━\n"
+    "Приветствую тебя в анкете на вступление в клан <b>SK</b>.\n\n"
+    "Заполни все пункты честно и не забудь отправить голосовое сообщение.\n\n"
+    "🔥 <i>Удачи на отборе!</i>"
 )
-FINAL_TEXT = "На этом все. Анкета передана Лидеру и Со-лидеру клана SK."
+FINAL_TEXT = (
+    "✅ <b>Анкета завершена</b>\n\n"
+    "Твоя анкета передана Лидеру и Со-лидеру клана <b>SK</b>.\n"
+    "Ожидай ответа."
+)
 VOICE_WARNING = (
     "⚠️ <b>WARNING:</b> Голосовое сообщение нужно для подтверждения возраста, "
     "а также чтобы заметить тебя при повторном входе в клан с другого аккаунта."
@@ -92,9 +99,18 @@ def clean_text(value):
     return html_escape(str(value), quote=False)
 
 
+def style_text(text):
+    text = str(text)
+    if text.startswith("☠️ <b>SK</b>") or text.startswith("☠️ <b>SK CLAN</b>"):
+        return text
+    return f"☠️ <b>SK</b>\n━━━━━━━━━━━━\n{text}"
+
+
 def safe_send(chat_id, text, **kwargs):
     try:
-        return bot.send_message(chat_id, text, **kwargs)
+        kwargs.setdefault("parse_mode", "HTML")
+        kwargs.setdefault("disable_web_page_preview", True)
+        return bot.send_message(chat_id, style_text(text), **kwargs)
     except Exception:
         logger.exception("Ошибка отправки сообщения в чат %s", chat_id)
         return None
@@ -242,7 +258,8 @@ def finish_application(chat_id, answers):
                 bot.send_voice(
                     APPLICATION_GROUP_ID,
                     answer["file_id"],
-                    caption="Голосовое сообщение кандидата",
+                    caption="☠️ <b>SK</b>\n\n🎙 <b>Голосовое сообщение кандидата</b>",
+                    parse_mode="HTML",
                 )
             except Exception:
                 logger.exception("Не удалось отправить голосовое сообщение кандидата")
@@ -257,7 +274,10 @@ def send_reviewer_reply(group_id, reviewer_id, text):
         return
 
     label = reviewer_label(reviewer_id)
-    reply_text = f"💬 <b>Сообщение от {label}</b>\n\n{clean_text(text)}"
+    reply_text = (
+        f"💬 <b>Ответ от {label}</b>\n\n"
+        f"<blockquote>{clean_text(text)}</blockquote>"
+    )
     sent = safe_send(pending["user_chat_id"], reply_text, reply_markup=back_keyboard())
     if sent:
         edit_review_buttons(pending["message_id"], review_keyboard(pending["message_id"]))
@@ -268,7 +288,21 @@ def send_reviewer_reply(group_id, reviewer_id, text):
 
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
-    safe_send(message.chat.id, WELCOME_TEXT, reply_markup=main_menu_keyboard())
+    try:
+        with open(WELCOME_IMAGE_PATH, "rb") as photo:
+            bot.send_photo(
+                message.chat.id,
+                photo,
+                caption=WELCOME_TEXT,
+                parse_mode="HTML",
+                reply_markup=main_menu_keyboard(),
+            )
+    except FileNotFoundError:
+        logger.exception("Файл приветственного изображения не найден")
+        safe_send(message.chat.id, WELCOME_TEXT, reply_markup=main_menu_keyboard())
+    except Exception:
+        logger.exception("Не удалось отправить приветственное изображение")
+        safe_send(message.chat.id, WELCOME_TEXT, reply_markup=main_menu_keyboard())
 
 
 @bot.callback_query_handler(func=lambda call: True)
