@@ -93,6 +93,13 @@ data_lock = threading.Lock()
 application_states = {}
 application_by_message = {}
 pending_replies = {}
+conversation_requests = {}
+conversation_sessions = {}
+conversation_group_messages = {}
+CONVERSATION_CONTENT_TYPES = [
+    "text", "voice", "photo", "video", "document", "audio",
+    "sticker", "animation", "contact", "location", "venue", "poll", "dice",
+]
 
 
 def clean_text(value):
@@ -123,21 +130,252 @@ def safe_delete(chat_id, message_id):
         logger.debug("Не удалось удалить сообщение %s в чате %s", message_id, chat_id)
 
 
+def conversation_request_keyboard(user_id):
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("Принять", callback_data=f"conversation_accept:{user_id}"),
+        InlineKeyboardButton("Отклонить", callback_data=f"conversation_decline:{user_id}"),
+    )
+    return keyboard
+
+
+def conversation_user_keyboard():
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(InlineKeyboardButton("Закончить беседу", callback_data="conversation_end_user"))
+    return keyboard
+
+
+def conversation_group_keyboard(user_id):
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(InlineKeyboardButton("Закончить беседу", callback_data=f"conversation_end_group:{user_id}"))
+    return keyboard
+
+
+def remove_inline_keyboard(chat_id, message_id):
+    try:
+        bot.edit_message_reply_markup(chat_id, message_id, reply_markup=None)
+    except Exception:
+        logger.debug("Не удалось убрать кнопки сообщения %s", message_id)
+
+
+def start_conversation_request(chat_id, user):
+    if not is_configured():
+        safe_send(chat_id, "Беседа пока недоступна: не указана APPLICATION_GROUP_ID.", reply_markup=back_keyboard())
+        return
+
+    user_id = user.id
+    with data_lock:
+        if user_id in conversation_sessions:
+            safe_send(chat_id, "У тебя уже есть активная беседа.", reply_markup=conversation_user_keyboard())
+            return
+        if user_id in conversation_requests:
+            safe_send(chat_id, "Твой запрос уже отправлен лидерскому составу.", reply_markup=back_keyboard())
+            return
+
+    display_name = clean_text(user.full_name or user.username or str(user_id))
+    username = f"@{clean_text(user.username)}" if user.username else "не указан"
+    request_text = (
+        "<b>Запрос на беседу с лидерским составом</b>\n\n"
+        f"Пользователь: <b>{display_name}</b>\n"
+        f"Username: {username}\n"
+        f"ID: <code>{user_id}</code>\n\n"
+        "Выберите действие ниже."
+    )
+    sent = safe_send(
+        APPLICATION_GROUP_ID,
+        request_text,
+        reply_markup=conversation_request_keyboard(user_id),
+    )
+    if not sent:
+        safe_send(chat_id, "Не удалось отправить запрос в группу. Попробуй позже.", reply_markup=back_keyboard())
+        return
+
+    with data_lock:
+        conversation_requests[user_id] = {
+            "group_id": APPLICATION_GROUP_ID,
+            "message_id": sent.message_id,
+        }
+    safe_send(
+        chat_id,
+        "Запрос отправлен лидерскому составу. Ожидай принятия беседы.",
+        reply_markup=back_keyboard(),
+    )
+
+
+def accept_conversation(group_id, message_id, reviewer_id, user_id):
+    with data_lock:
+        if user_id in conversation_sessions:
+            return "active"
+        conversation_requests.pop(user_id, None)
+        conversation_sessions[user_id] = {
+            "user_chat_id": user_id,
+            "group_id": group_id,
+            "request_message_id": message_id,
+            "reviewer_id": reviewer_id,
+        }
+
+    remove_inline_keyboard(group_id, message_id)
+    try:
+        bot.edit_message_reply_markup(
+            group_id,
+            message_id,
+            reply_markup=conversation_group_keyboard(user_id),
+        )
+    except Exception:
+        logger.debug("Не удалось добавить кнопку завершения беседы")
+    safe_send(
+        user_id,
+        "Беседа принята. Можешь написать сообщение лидерскому составу.",
+        reply_markup=conversation_user_keyboard(),
+    )
+    safe_send(
+        group_id,
+        "Беседа открыта. Ответьте на сообщение пользователя, чтобы начать диалог.",
+        reply_markup=conversation_group_keyboard(user_id),
+    )
+    return "accepted"
+
+
+def decline_conversation(group_id, message_id, user_id):
+    with data_lock:
+        conversation_requests.pop(user_id, None)
+        active = user_id in conversation_sessions
+    if active:
+        return "active"
+    remove_inline_keyboard(group_id, message_id)
+    safe_send(user_id, "Запрос на беседу отклонён лидерским составом.", reply_markup=back_keyboard())
+    safe_send(group_id, "Запрос на беседу отклонён.")
+    return "declined"
+
+
+def close_conversation(user_id, ended_by, source_group_id=None):
+    with data_lock:
+        session = conversation_sessions.pop(user_id, None)
+        if not session:
+            return False
+        conversation_requests.pop(user_id, None)
+        stale_keys = [
+            key for key, target_user_id in conversation_group_messages.items()
+            if target_user_id == user_id
+        ]
+        for key in stale_keys:
+            conversation_group_messages.pop(key, None)
+
+    group_id = session["group_id"]
+    if ended_by == "user":
+        safe_send(user_id, "Беседа завершена пользователем.", reply_markup=back_keyboard())
+        safe_send(group_id, "Пользователь завершил беседу.")
+    else:
+        safe_send(user_id, "Беседа завершена лидерским составом.", reply_markup=back_keyboard())
+        safe_send(group_id, "Беседа завершена лидерским составом.")
+    return True
+
+
+def conversation_user_for_group_message(message):
+    if message.chat.id != APPLICATION_GROUP_ID:
+        return 0
+    reply_to = getattr(message, "reply_to_message", None)
+    reply_message_id = getattr(reply_to, "message_id", None)
+    with data_lock:
+        if reply_message_id:
+            user_id = conversation_group_messages.get((message.chat.id, reply_message_id))
+            if user_id in conversation_sessions:
+                return user_id
+        active_users = [
+            user_id
+            for user_id, session in conversation_sessions.items()
+            if session["group_id"] == message.chat.id
+        ]
+    return active_users[0] if len(active_users) == 1 else 0
+
+
+def send_conversation_message(message, target_chat_id, user_id, from_group):
+    keyboard = conversation_user_keyboard() if from_group else conversation_group_keyboard(user_id)
+    try:
+        if message.content_type == "text":
+            if from_group:
+                heading = f"<b>Сообщение от {reviewer_label(message.from_user.id)}</b>"
+            else:
+                heading = "<b>Сообщение от пользователя</b>"
+            return safe_send(
+                target_chat_id,
+                f"{heading}\n\n<blockquote>{clean_text(message.text)}</blockquote>",
+                reply_markup=keyboard,
+            )
+
+        if message.content_type == "voice":
+            if from_group:
+                caption = f"<b>Голосовое сообщение от {reviewer_label(message.from_user.id)}</b>"
+            else:
+                caption = "<b>Голосовое сообщение от пользователя</b>"
+            return bot.send_voice(
+                target_chat_id,
+                message.voice.file_id,
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+            )
+
+        return bot.copy_message(
+            target_chat_id,
+            message.chat.id,
+            message.message_id,
+            reply_markup=keyboard,
+        )
+    except Exception:
+        logger.exception("Не удалось переслать сообщение беседы")
+        return None
+
+
+def relay_user_conversation_message(message):
+    with data_lock:
+        session = conversation_sessions.get(message.chat.id)
+    if not session:
+        return
+    sent = send_conversation_message(
+        message,
+        session["group_id"],
+        message.chat.id,
+        from_group=False,
+    )
+    if sent and getattr(sent, "message_id", None):
+        with data_lock:
+            conversation_group_messages[(session["group_id"], sent.message_id)] = message.chat.id
+    if not sent:
+        safe_send(message.chat.id, "Не удалось отправить сообщение лидерскому составу. Попробуй ещё раз.", reply_markup=conversation_user_keyboard())
+
+
+def relay_group_conversation_message(message, user_id):
+    with data_lock:
+        session = conversation_sessions.get(user_id)
+    if not session:
+        return
+    sent = send_conversation_message(
+        message,
+        user_id,
+        user_id,
+        from_group=True,
+    )
+    if not sent:
+        safe_send(message.chat.id, "Не удалось отправить сообщение пользователю.", reply_markup=conversation_group_keyboard(user_id))
+
+
 def main_menu_keyboard():
     keyboard = InlineKeyboardMarkup(row_width=1)
     keyboard.add(InlineKeyboardButton("Заполнить анкету", callback_data="open_application"))
+    keyboard.add(InlineKeyboardButton("Беседа с лидерским составом", callback_data="open_conversation"))
     return keyboard
 
 
 def back_keyboard():
     keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(InlineKeyboardButton("⬅️ Назад", callback_data="user_back"))
+    keyboard.add(InlineKeyboardButton("Назад", callback_data="user_back"))
     return keyboard
 
 
 def application_back_keyboard():
     keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(InlineKeyboardButton("⬅️ Назад", callback_data="application_back"))
+    keyboard.add(InlineKeyboardButton("Назад", callback_data="application_back"))
     return keyboard
 
 
@@ -145,7 +383,7 @@ def review_keyboard(message_id, user_chat_id=0):
       keyboard = InlineKeyboardMarkup(row_width=1)
       callback_target = f"{message_id}:{user_chat_id}" if user_chat_id else str(message_id)
       keyboard.add(InlineKeyboardButton("Ответить", callback_data=f"answer_application:{callback_target}"))
-      keyboard.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"back_application:{message_id}"))
+      keyboard.add(InlineKeyboardButton("Назад", callback_data=f"back_application:{message_id}"))
       return keyboard
     
 
@@ -315,6 +553,52 @@ def callback_handler(call):
     except Exception:
         logger.debug("Не удалось подтвердить callback %s", call.id)
 
+    if data == "open_conversation":
+        safe_delete(chat_id, message_id)
+        start_conversation_request(chat_id, call.from_user)
+        return
+
+    if data.startswith("conversation_accept:"):
+        if chat_id != APPLICATION_GROUP_ID or not is_reviewer(call.from_user.id):
+            safe_send(chat_id, "Только лидерский состав может принять запрос.")
+            return
+        try:
+            user_id = int(data.split(":", 1)[1])
+        except ValueError:
+            return
+        result = accept_conversation(chat_id, message_id, call.from_user.id, user_id)
+        if result == "active":
+            safe_send(chat_id, "У этого пользователя уже есть активная беседа.")
+        return
+
+    if data.startswith("conversation_decline:"):
+        if chat_id != APPLICATION_GROUP_ID or not is_reviewer(call.from_user.id):
+            safe_send(chat_id, "Только лидерский состав может отклонить запрос.")
+            return
+        try:
+            user_id = int(data.split(":", 1)[1])
+        except ValueError:
+            return
+        result = decline_conversation(chat_id, message_id, user_id)
+        if result == "active":
+            safe_send(chat_id, "Нельзя отклонить уже активную беседу.")
+        return
+
+    if data == "conversation_end_user":
+        close_conversation(chat_id, "user")
+        return
+
+    if data.startswith("conversation_end_group:"):
+        if chat_id != APPLICATION_GROUP_ID or not is_reviewer(call.from_user.id):
+            safe_send(chat_id, "Только лидерский состав может закончить беседу.")
+            return
+        try:
+            user_id = int(data.split(":", 1)[1])
+        except ValueError:
+            return
+        close_conversation(user_id, "group", chat_id)
+        return
+
     if data == "open_application":
         safe_delete(chat_id, message_id)
         start_application(chat_id)
@@ -383,6 +667,14 @@ def callback_handler(call):
 
 
 @bot.message_handler(
+    func=lambda message: message.chat.id in conversation_sessions,
+    content_types=CONVERSATION_CONTENT_TYPES,
+)
+def handle_conversation_user_message(message):
+    relay_user_conversation_message(message)
+
+
+@bot.message_handler(
     func=lambda message: message.chat.id in application_states,
     content_types=["text", "voice"],
 )
@@ -424,6 +716,21 @@ def handle_application_input(message):
         finish_application(chat_id, answers)
     else:
         send_question(chat_id)
+
+
+@bot.message_handler(
+    func=lambda message: (
+        message.chat.id == APPLICATION_GROUP_ID
+        and conversation_user_for_group_message(message) != 0
+    ),
+    content_types=CONVERSATION_CONTENT_TYPES,
+)
+def handle_conversation_group_message(message):
+    if not is_reviewer(getattr(message.from_user, "id", 0)):
+        return
+    user_id = conversation_user_for_group_message(message)
+    if user_id:
+        relay_group_conversation_message(message, user_id)
 
 
 @bot.message_handler(
