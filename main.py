@@ -330,10 +330,11 @@ def callback_handler(call):
           if not user_chat_id:
               safe_send(chat_id, "Анкета не найдена. Начните новую анкету, если бот был перезапущен.")
               return
-            safe_send(chat_id, "Напишите ответ одним сообщением. Он будет отправлен пользователю.", reply_to_message_id=source_message_id)
-        return
+          edit_review_buttons(source_message_id, waiting_keyboard(source_message_id))
+          safe_send(chat_id, "Напишите ответ одним сообщением. Он будет отправлен пользователю.", reply_to_message_id=source_message_id)
+          return
 
-    if data.startswith("back_application:"):
+        if data.startswith("back_application:"):
         try:
             source_message_id = int(data.split(":", 1)[1])
         except ValueError:
