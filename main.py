@@ -68,7 +68,50 @@ data_lock = threading.Lock()
 
 user_data = {}
 waiting_for_key = set()
-used_keys = set()\n\n\n# =========================\n# Анкеты\n# =========================\n\ndef parse_chat_id(value):\n    try:\n        return int(str(value).strip())\n    except (TypeError, ValueError):\n        return 0\n\n\ndef load_reviewer_ids():\n    reviewer_ids = set()\n    for env_name in ("LEADER_ID", "DEPUTY_ID", "APPLICATION_REVIEWER_IDS"):\n        for raw_id in os.environ.get(env_name, "").split(","):\n            raw_id = raw_id.strip()\n            if not raw_id:\n                continue\n            try:\n                reviewer_ids.add(int(raw_id))\n            except ValueError:\n                logger.warning("Некорректный Telegram ID в %s", env_name)\n    return reviewer_ids\n\n\nAPPLICATION_GROUP_ID = parse_chat_id(os.environ.get("APPLICATION_GROUP_ID", "0"))\nREVIEWER_IDS = load_reviewer_ids()\n\nAPPLICATION_QUESTIONS = [\n    ("Игровой ник", "Напишите ваш игровой ник."),\n    ("Возраст", "Сколько вам лет?"),\n    ("Связь", "Укажите Telegram или Discord для связи."),\n    ("Желаемая должность", "На какую должность или в какую организацию вы подаёте анкету?"),\n    ("Опыт", "Расскажите о своём опыте и предыдущих должностях."),\n    ("Мотивация", "Почему вы хотите занять эту должность?"),\n    ("Дополнительно", "Есть ли что-то ещё, что нужно знать лидеру? Если нет — напишите «нет»."),\n]\n\napplication_states = {}\napplication_by_message = {}\npending_replies = {}
+used_keys = set()
+
+
+# =========================
+# Анкеты
+# =========================
+
+def parse_chat_id(value):
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return 0
+
+
+def load_reviewer_ids():
+    reviewer_ids = set()
+    for env_name in ("LEADER_ID", "DEPUTY_ID", "APPLICATION_REVIEWER_IDS"):
+        for raw_id in os.environ.get(env_name, "").split(","):
+            raw_id = raw_id.strip()
+            if not raw_id:
+                continue
+            try:
+                reviewer_ids.add(int(raw_id))
+            except ValueError:
+                logger.warning("Некорректный Telegram ID в %s", env_name)
+    return reviewer_ids
+
+
+APPLICATION_GROUP_ID = parse_chat_id(os.environ.get("APPLICATION_GROUP_ID", "0"))
+REVIEWER_IDS = load_reviewer_ids()
+
+APPLICATION_QUESTIONS = [
+    ("Игровой ник", "Напишите ваш игровой ник."),
+    ("Возраст", "Сколько вам лет?"),
+    ("Связь", "Укажите Telegram или Discord для связи."),
+    ("Желаемая должность", "На какую должность или в какую организацию вы подаёте анкету?"),
+    ("Опыт", "Расскажите о своём опыте и предыдущих должностях."),
+    ("Мотивация", "Почему вы хотите занять эту должность?"),
+    ("Дополнительно", "Есть ли что-то ещё, что нужно знать лидеру? Если нет — напишите «нет»."),
+]
+
+application_states = {}
+application_by_message = {}
+pending_replies = {}
 
 
 # =========================
@@ -598,7 +641,152 @@ def get_rules_keyboard():
             callback_data="show_answers",
         ),
     )
-    return keyboard\n\n\ndef get_main_menu_keyboard():\n    keyboard = InlineKeyboardMarkup(row_width=1)\n    keyboard.add(\n        InlineKeyboardButton("Подать анкету", callback_data="open_application"),\n        InlineKeyboardButton("Правила и подготовка к обзвону", callback_data="show_rules"),\n    )\n    return keyboard\n\n\ndef get_application_navigation_keyboard():\n    keyboard = InlineKeyboardMarkup(row_width=1)\n    keyboard.add(InlineKeyboardButton("Назад", callback_data="application_back"))\n    return keyboard\n\n\ndef get_application_review_keyboard(message_id):\n    keyboard = InlineKeyboardMarkup(row_width=1)\n    keyboard.add(InlineKeyboardButton("Ответить", callback_data=f"answer_application:{message_id}"))\n    keyboard.add(InlineKeyboardButton("Назад", callback_data=f"back_application:{message_id}"))\n    return keyboard\n\n\ndef get_application_waiting_keyboard(message_id):\n    keyboard = InlineKeyboardMarkup(row_width=1)\n    keyboard.add(InlineKeyboardButton("Назад", callback_data=f"back_application:{message_id}"))\n    return keyboard\n\n\ndef is_application_ready():\n    return APPLICATION_GROUP_ID != 0\n\n\ndef is_reviewer(user_id):\n    if user_id in REVIEWER_IDS:\n        return True\n    if not is_application_ready():\n        return False\n    try:\n        member = bot.get_chat_member(APPLICATION_GROUP_ID, user_id)\n        return member.status in {"administrator", "creator"}\n    except Exception:\n        logger.exception("Не удалось проверить права пользователя %s", user_id)\n        return False\n\n\ndef safe_edit_reply_markup(chat_id, message_id, reply_markup):\n    try:\n        bot.edit_message_reply_markup(chat_id, message_id, reply_markup=reply_markup)\n    except Exception:\n        logger.exception("Ошибка обновления кнопок сообщения %s", message_id)\n\n\ndef send_application_question(chat_id):\n    with data_lock:\n        state = application_states.get(chat_id)\n        if not state:\n            return\n        index = state["index"]\n        total = len(APPLICATION_QUESTIONS)\n        title, prompt = APPLICATION_QUESTIONS[index]\n    safe_send(\n        chat_id,\n        f"Анкета — вопрос {index + 1}/{total}\n\n<b>{title}</b>\n{prompt}",\n        reply_markup=get_application_navigation_keyboard(),\n        parse_mode="HTML",\n    )\n\n\ndef start_application(chat_id):\n    if not is_application_ready():\n        safe_send(chat_id, "Анкеты пока не настроены: администратору нужно указать APPLICATION_GROUP_ID.")\n        return\n    with data_lock:\n        application_states[chat_id] = {"index": 0, "answers": []}\n    safe_send(\n        chat_id,\n        "Заполните анкету. Отвечайте одним сообщением на каждый вопрос.",\n        reply_markup=get_application_navigation_keyboard(),\n    )\n    send_application_question(chat_id)\n\n\ndef finish_application(chat_id, answers):\n    user = None\n    try:\n        user = bot.get_chat(chat_id)\n    except Exception:\n        logger.exception("Не удалось получить данные пользователя %s", chat_id)\n    user_name = html_escape(" ".join(filter(None, [getattr(user, "first_name", ""), getattr(user, "last_name", "")])) or "Без имени")\n    username = getattr(user, "username", None) if user else None\n    username_text = f"@{html_escape(username)}" if username else "не указан"\n    lines = ["<b>Новая анкета</b>", "", f"<b>Пользователь:</b> {user_name}", f"<b>Username:</b> {username_text}", f"<b>Telegram ID:</b> <code>{chat_id}</code>", ""]\n    for (title, _), answer in zip(APPLICATION_QUESTIONS, answers):\n        lines.append(f"<b>{html_escape(title)}:</b>\n{html_escape(answer)}\n")\n    sent = safe_send(\n        APPLICATION_GROUP_ID,\n        "\n".join(lines),\n        parse_mode="HTML",\n    )\n    if not sent:\n        safe_send(chat_id, "Не удалось отправить анкету в группу. Попробуйте позже или сообщите администратору.")\n        return\n    with data_lock:\n        application_by_message[(APPLICATION_GROUP_ID, sent.message_id)] = chat_id\n    safe_edit_reply_markup(\n        APPLICATION_GROUP_ID,\n        sent.message_id,\n        get_application_review_keyboard(sent.message_id),\n    )\n    safe_send(\n        chat_id,\n        "Анкета переслана лидеру, так же его заместителю. Ожидайте ответа.",\n        reply_markup=get_main_menu_keyboard(),\n    )\n\n\ndef send_reviewer_reply(group_id, reviewer_id, text):\n    key = (group_id, reviewer_id)\n    with data_lock:\n        reply_context = pending_replies.pop(key, None)\n    if not reply_context:\n        return False\n    user_chat_id = reply_context["user_chat_id"]\n    source_message_id = reply_context["message_id"]\n    sent = safe_send(\n        user_chat_id,\n        f"<b>Ответ по вашей анкете</b>\n\n{html_escape(text)}",\n        parse_mode="HTML",\n        reply_markup=get_main_menu_keyboard(),\n    )\n    if sent:\n        safe_send(\n            group_id,\n            "Ответ отправлен пользователю.",\n            reply_to_message_id=source_message_id,\n            reply_markup=get_application_review_keyboard(source_message_id),\n        )\n    else:\n        safe_send(group_id, "Не удалось отправить ответ пользователю. Возможно, он заблокировал бота.")\n    return True\n\n\ndef get_opg_answers_text():
+    return keyboard
+
+
+def get_main_menu_keyboard():
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        InlineKeyboardButton("Подать анкету", callback_data="open_application"),
+        InlineKeyboardButton("Правила и подготовка к обзвону", callback_data="show_rules"),
+    )
+    return keyboard
+
+
+def get_application_navigation_keyboard():
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(InlineKeyboardButton("Назад", callback_data="application_back"))
+    return keyboard
+
+
+def get_application_review_keyboard(message_id):
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(InlineKeyboardButton("Ответить", callback_data=f"answer_application:{message_id}"))
+    keyboard.add(InlineKeyboardButton("Назад", callback_data=f"back_application:{message_id}"))
+    return keyboard
+
+
+def get_application_waiting_keyboard(message_id):
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(InlineKeyboardButton("Назад", callback_data=f"back_application:{message_id}"))
+    return keyboard
+
+
+def is_application_ready():
+    return APPLICATION_GROUP_ID != 0
+
+
+def is_reviewer(user_id):
+    if user_id in REVIEWER_IDS:
+        return True
+    if not is_application_ready():
+        return False
+    try:
+        member = bot.get_chat_member(APPLICATION_GROUP_ID, user_id)
+        return member.status in {"administrator", "creator"}
+    except Exception:
+        logger.exception("Не удалось проверить права пользователя %s", user_id)
+        return False
+
+
+def safe_edit_reply_markup(chat_id, message_id, reply_markup):
+    try:
+        bot.edit_message_reply_markup(chat_id, message_id, reply_markup=reply_markup)
+    except Exception:
+        logger.exception("Ошибка обновления кнопок сообщения %s", message_id)
+
+
+def send_application_question(chat_id):
+    with data_lock:
+        state = application_states.get(chat_id)
+        if not state:
+            return
+        index = state["index"]
+        total = len(APPLICATION_QUESTIONS)
+        title, prompt = APPLICATION_QUESTIONS[index]
+    safe_send(
+        chat_id,
+        f"Анкета — вопрос {index + 1}/{total}\n\n<b>{title}</b>\n{prompt}",
+        reply_markup=get_application_navigation_keyboard(),
+        parse_mode="HTML",
+    )
+
+
+def start_application(chat_id):
+    if not is_application_ready():
+        safe_send(chat_id, "Анкеты пока не настроены: администратору нужно указать APPLICATION_GROUP_ID.")
+        return
+    with data_lock:
+        application_states[chat_id] = {"index": 0, "answers": []}
+    safe_send(
+        chat_id,
+        "Заполните анкету. Отвечайте одним сообщением на каждый вопрос.",
+        reply_markup=get_application_navigation_keyboard(),
+    )
+    send_application_question(chat_id)
+
+
+def finish_application(chat_id, answers):
+    user = None
+    try:
+        user = bot.get_chat(chat_id)
+    except Exception:
+        logger.exception("Не удалось получить данные пользователя %s", chat_id)
+    user_name = html_escape(" ".join(filter(None, [getattr(user, "first_name", ""), getattr(user, "last_name", "")])) or "Без имени")
+    username = getattr(user, "username", None) if user else None
+    username_text = f"@{html_escape(username)}" if username else "не указан"
+    lines = ["<b>Новая анкета</b>", "", f"<b>Пользователь:</b> {user_name}", f"<b>Username:</b> {username_text}", f"<b>Telegram ID:</b> <code>{chat_id}</code>", ""]
+    for (title, _), answer in zip(APPLICATION_QUESTIONS, answers):
+        lines.append(f"<b>{html_escape(title)}:</b>\n{html_escape(answer)}\n")
+    sent = safe_send(
+        APPLICATION_GROUP_ID,
+        "\n".join(lines),
+        parse_mode="HTML",
+    )
+    if not sent:
+        safe_send(chat_id, "Не удалось отправить анкету в группу. Попробуйте позже или сообщите администратору.")
+        return
+    with data_lock:
+        application_by_message[(APPLICATION_GROUP_ID, sent.message_id)] = chat_id
+    safe_edit_reply_markup(
+        APPLICATION_GROUP_ID,
+        sent.message_id,
+        get_application_review_keyboard(sent.message_id),
+    )
+    safe_send(
+        chat_id,
+        "Анкета переслана лидеру, так же его заместителю. Ожидайте ответа.",
+        reply_markup=get_main_menu_keyboard(),
+    )
+
+
+def send_reviewer_reply(group_id, reviewer_id, text):
+    key = (group_id, reviewer_id)
+    with data_lock:
+        reply_context = pending_replies.pop(key, None)
+    if not reply_context:
+        return False
+    user_chat_id = reply_context["user_chat_id"]
+    source_message_id = reply_context["message_id"]
+    sent = safe_send(
+        user_chat_id,
+        f"<b>Ответ по вашей анкете</b>\n\n{html_escape(text)}",
+        parse_mode="HTML",
+        reply_markup=get_main_menu_keyboard(),
+    )
+    if sent:
+        safe_send(
+            group_id,
+            "Ответ отправлен пользователю.",
+            reply_to_message_id=source_message_id,
+            reply_markup=get_application_review_keyboard(source_message_id),
+        )
+    else:
+        safe_send(group_id, "Не удалось отправить ответ пользователю. Возможно, он заблокировал бота.")
+    return True
+
+
+def get_opg_answers_text():
     return (
         "📖 <b>Ответы: ОПГ</b>\n\n"
         "<b>1. Можно ли грабителям инкассаторов состоять в разных фракциях при совершении одного ограбления?</b>\n"
@@ -982,7 +1170,53 @@ def callback_handler(call):
     except Exception:
         logger.exception("Ошибка callback query")
 
-    # Анкеты\n    if data == "open_application":\n        safe_delete(chat_id, message_id)\n        start_application(chat_id)\n        return\n\n    if data == "application_back":\n        with data_lock:\n            application_states.pop(chat_id, None)\n        safe_delete(chat_id, message_id)\n        safe_send(chat_id, "Главное меню:", reply_markup=get_main_menu_keyboard())\n        return\n\n    if data.startswith("answer_application:"):\n        if not is_reviewer(call.from_user.id):\n            try:\n                bot.answer_callback_query(call.id, "Ответить может только лидер или заместитель.", show_alert=True)\n            except Exception:\n                logger.exception("Ошибка уведомления о недостаточных правах")\n            return\n        try:\n            source_message_id = int(data.split(":", 1)[1])\n        except ValueError:\n            return\n        with data_lock:\n            user_chat_id = application_by_message.get((chat_id, source_message_id))\n            if user_chat_id:\n                pending_replies[(chat_id, call.from_user.id)] = {"user_chat_id": user_chat_id, "message_id": source_message_id}\n        if not user_chat_id:\n            safe_send(chat_id, "Анкета не найдена или бот был перезапущен.")\n            return\n        safe_edit_reply_markup(chat_id, source_message_id, get_application_waiting_keyboard(source_message_id))\n        safe_send(chat_id, "Напишите ответ одним сообщением. Он будет отправлен пользователю.", reply_to_message_id=source_message_id)\n        return\n\n    if data.startswith("back_application:"):\n        try:\n            source_message_id = int(data.split(":", 1)[1])\n        except ValueError:\n            return\n        with data_lock:\n            pending_replies.pop((chat_id, call.from_user.id), None)\n        safe_edit_reply_markup(chat_id, source_message_id, get_application_review_keyboard(source_message_id))\n        return\n\n    # Вернуться к меню правил и ответов\n    if data == "back_to_rules_menu":
+    # Анкеты
+    if data == "open_application":
+        safe_delete(chat_id, message_id)
+        start_application(chat_id)
+        return
+
+    if data == "application_back":
+        with data_lock:
+            application_states.pop(chat_id, None)
+        safe_delete(chat_id, message_id)
+        safe_send(chat_id, "Главное меню:", reply_markup=get_main_menu_keyboard())
+        return
+
+    if data.startswith("answer_application:"):
+        if not is_reviewer(call.from_user.id):
+            try:
+                bot.answer_callback_query(call.id, "Ответить может только лидер или заместитель.", show_alert=True)
+            except Exception:
+                logger.exception("Ошибка уведомления о недостаточных правах")
+            return
+        try:
+            source_message_id = int(data.split(":", 1)[1])
+        except ValueError:
+            return
+        with data_lock:
+            user_chat_id = application_by_message.get((chat_id, source_message_id))
+            if user_chat_id:
+                pending_replies[(chat_id, call.from_user.id)] = {"user_chat_id": user_chat_id, "message_id": source_message_id}
+        if not user_chat_id:
+            safe_send(chat_id, "Анкета не найдена или бот был перезапущен.")
+            return
+        safe_edit_reply_markup(chat_id, source_message_id, get_application_waiting_keyboard(source_message_id))
+        safe_send(chat_id, "Напишите ответ одним сообщением. Он будет отправлен пользователю.", reply_to_message_id=source_message_id)
+        return
+
+    if data.startswith("back_application:"):
+        try:
+            source_message_id = int(data.split(":", 1)[1])
+        except ValueError:
+            return
+        with data_lock:
+            pending_replies.pop((chat_id, call.from_user.id), None)
+        safe_edit_reply_markup(chat_id, source_message_id, get_application_review_keyboard(source_message_id))
+        return
+
+    # Вернуться к меню правил и ответов
+    if data == "back_to_rules_menu":
         safe_delete(chat_id, message_id)
         safe_send(
             chat_id,
@@ -1200,7 +1434,52 @@ def send_next_question(chat_id):
                 ] = sent_message.message_id
 
 
-# =========================\n# Обработка анкеты\n# =========================\n\n@bot.message_handler(func=lambda message: message.chat.id in application_states)\ndef handle_application_input(message):\n    chat_id = message.chat.id\n    if not message.text:\n        safe_send(chat_id, "Пожалуйста, ответьте текстом.", reply_markup=get_application_navigation_keyboard())\n        return\n    answer = message.text.strip()\n    if not answer:\n        safe_send(chat_id, "Ответ не должен быть пустым.", reply_markup=get_application_navigation_keyboard())\n        return\n    with data_lock:\n        state = application_states.get(chat_id)\n        if not state:\n            return\n        state["answers"].append(answer)\n        state["index"] += 1\n        finished = state["index"] >= len(APPLICATION_QUESTIONS)\n        answers = list(state["answers"])\n        if finished:\n            application_states.pop(chat_id, None)\n    if finished:\n        finish_application(chat_id, answers)\n    else:\n        send_application_question(chat_id)\n\n\n@bot.message_handler(func=lambda message: message.chat.id == APPLICATION_GROUP_ID and (message.chat.id, getattr(message.from_user, "id", 0)) in pending_replies)\ndef handle_reviewer_reply(message):\n    if not message.text:\n        safe_send(message.chat.id, "Пожалуйста, отправьте ответ текстом.")\n        return\n    if not is_reviewer(message.from_user.id):\n        return\n    send_reviewer_reply(message.chat.id, message.from_user.id, message.text.strip())\n\n\n# =========================\n# Обработка ответа\n# =========================\n\n@bot.message_handler(\n    func=lambda message: (
+# =========================
+# Обработка анкеты
+# =========================
+
+@bot.message_handler(func=lambda message: message.chat.id in application_states)
+def handle_application_input(message):
+    chat_id = message.chat.id
+    if not message.text:
+        safe_send(chat_id, "Пожалуйста, ответьте текстом.", reply_markup=get_application_navigation_keyboard())
+        return
+    answer = message.text.strip()
+    if not answer:
+        safe_send(chat_id, "Ответ не должен быть пустым.", reply_markup=get_application_navigation_keyboard())
+        return
+    with data_lock:
+        state = application_states.get(chat_id)
+        if not state:
+            return
+        state["answers"].append(answer)
+        state["index"] += 1
+        finished = state["index"] >= len(APPLICATION_QUESTIONS)
+        answers = list(state["answers"])
+        if finished:
+            application_states.pop(chat_id, None)
+    if finished:
+        finish_application(chat_id, answers)
+    else:
+        send_application_question(chat_id)
+
+
+@bot.message_handler(func=lambda message: message.chat.id == APPLICATION_GROUP_ID and (message.chat.id, getattr(message.from_user, "id", 0)) in pending_replies)
+def handle_reviewer_reply(message):
+    if not message.text:
+        safe_send(message.chat.id, "Пожалуйста, отправьте ответ текстом.")
+        return
+    if not is_reviewer(message.from_user.id):
+        return
+    send_reviewer_reply(message.chat.id, message.from_user.id, message.text.strip())
+
+
+# =========================
+# Обработка ответа
+# =========================
+
+@bot.message_handler(
+    func=lambda message: (
         message.chat.id in user_data
         and user_data[message.chat.id].get(
             "started",
