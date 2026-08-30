@@ -71,19 +71,19 @@ APPLICATION_QUESTIONS = [
 
 WELCOME_IMAGE_PATH = os.path.join(os.path.dirname(__file__), "assets", "sk_welcome.jpg")
 WELCOME_TEXT = (
-    "☠️ <b>SK CLAN</b>\n"
-    "━━━━━━━━━━━━\n"
+    "<b>SK CLAN</b>\n\n"
     "Приветствую тебя в анкете на вступление в клан <b>SK</b>.\n\n"
     "Заполни все пункты честно и не забудь отправить голосовое сообщение.\n\n"
-    "🔥 <i>Удачи на отборе!</i>"
+    "<i>Удачи на отборе!</i>"
 )
 FINAL_TEXT = (
-    "✅ <b>Анкета завершена</b>\n\n"
+    "<b>Анкета завершена</b>\n\n"
     "Твоя анкета передана Лидеру и Со-лидеру клана <b>SK</b>.\n"
-    "Ожидай ответа."
+    "Ожидай ответа.\n\n"
+    "✅"
 )
 VOICE_WARNING = (
-    "⚠️ <b>WARNING:</b> Голосовое сообщение нужно для подтверждения возраста, "
+    "<b>Важно:</b> Голосовое сообщение нужно для подтверждения возраста, "
     "а также чтобы заметить тебя при повторном входе в клан с другого аккаунта."
 )
 
@@ -101,9 +101,9 @@ def clean_text(value):
 
 def style_text(text):
     text = str(text)
-    if text.startswith("☠️ <b>SK</b>") or text.startswith("☠️ <b>SK CLAN</b>"):
+    if text.startswith("<b>SK</b>") or text.startswith("<b>SK CLAN</b>"):
         return text
-    return f"☠️ <b>SK</b>\n━━━━━━━━━━━━\n{text}"
+    return f"<b>SK</b>\n\n{text}"
 
 
 def safe_send(chat_id, text, **kwargs):
@@ -258,7 +258,7 @@ def finish_application(chat_id, answers):
                 bot.send_voice(
                     APPLICATION_GROUP_ID,
                     answer["file_id"],
-                    caption="☠️ <b>SK</b>\n\n🎙 <b>Голосовое сообщение кандидата</b>",
+                    caption="<b>SK</b>\n\n<b>Голосовое сообщение кандидата</b>",
                     parse_mode="HTML",
                 )
             except Exception:
@@ -275,7 +275,7 @@ def send_reviewer_reply(group_id, reviewer_id, text):
 
     label = reviewer_label(reviewer_id)
     reply_text = (
-        f"💬 <b>Ответ от {label}</b>\n\n"
+        f"<b>Ответ от {label}</b>\n\n"
         f"<blockquote>{clean_text(text)}</blockquote>"
     )
     sent = safe_send(pending["user_chat_id"], reply_text, reply_markup=back_keyboard())
