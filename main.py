@@ -469,8 +469,17 @@ def start_application(chat_id):
     send_question(chat_id)
 
 
-def format_application(answers):
+def format_application(answers, applicant=None):
     lines = ["<b>Анкета</b>", ""]
+    if applicant is not None:
+        display_name = clean_text(applicant.full_name or applicant.username or str(applicant.id))
+        username = f"@{clean_text(applicant.username)}" if applicant.username else "не указан"
+        lines.extend([
+            f"<b>Пользователь:</b> {display_name}",
+            f"<b>Username:</b> {username}",
+            f"<b>Telegram ID:</b> <code>{applicant.id}</code>",
+            "",
+        ])
     for (title, _prompt, _kind), answer in zip(APPLICATION_QUESTIONS, answers):
         if isinstance(answer, dict) and answer.get("type") == "voice":
             value = "Голосовое сообщение прикреплено ниже."
@@ -487,12 +496,12 @@ def edit_review_buttons(message_id, keyboard):
         logger.debug("Не удалось обновить кнопки сообщения %s", message_id)
 
 
-def finish_application(chat_id, answers):
+def finish_application(chat_id, answers, applicant=None):
     if not is_configured():
         safe_send(chat_id, "Не удалось передать анкету: не указана APPLICATION_GROUP_ID.", reply_markup=back_keyboard())
         return
 
-    sent = safe_send(APPLICATION_GROUP_ID, format_application(answers))
+    sent = safe_send(APPLICATION_GROUP_ID, format_application(answers, applicant))
     if not sent:
         safe_send(chat_id, "Не удалось передать анкету в группу. Попробуй позже.", reply_markup=back_keyboard())
         return
@@ -724,7 +733,7 @@ def handle_application_input(message):
     if question_message_id:
         safe_delete(chat_id, question_message_id)
     if finished:
-        finish_application(chat_id, answers)
+        finish_application(chat_id, answers, message.from_user)
     else:
         send_question(chat_id)
 
