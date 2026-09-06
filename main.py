@@ -5,7 +5,7 @@ import threading
 import time
 
 import telebot
-from flask import Flask
+from flask import Flask, request
 from telebot import types
 
 
@@ -197,6 +197,17 @@ def health_check():
     return "Bot is alive and running!"
 
 
+@app.route("/telegram-webhook", methods=["POST"])
+def telegram_webhook():
+    try:
+        update = types.Update.de_json(request.get_data().decode("utf-8"))
+        bot.process_new_updates([update])
+        return "OK", 200
+    except Exception:
+        logger.exception("Ошибка обработки Telegram webhook")
+        return "Webhook error", 500
+
+
 def start_keyboard():
     keyboard = types.InlineKeyboardMarkup()
     keyboard.add(types.InlineKeyboardButton("Правила", callback_data="menu:rules"))
@@ -361,10 +372,24 @@ def run_web_server():
 
 
 if __name__ == "__main__":
-    # Удаляем webhook от старой версии перед запуском polling.
-    # Иначе Telegram может не передавать callback-нажатия кнопок.
-    bot.remove_webhook()
-    time.sleep(1)
-    threading.Thread(target=run_web_server, daemon=True).start()
-    logger.info("Rules bot is starting")
-    bot.infinity_polling(skip_pending=True)
+    external_url = os.environ.get("RENDER_EXTERNAL_URL")
+    if external_url:
+        # На Render используем webhook: он исключает конфликт двух polling-процессов.
+        webhook_url = f"{external_url.rstrip('/')}/telegram-webhook"
+        bot.remove_webhook()
+        time.sleep(1)
+        bot.set_webhook(url=webhook_url)
+        logger.info("Rules bot is starting in webhook mode: %s", webhook_url)
+        run_web_server()
+    else:
+        # Локальный/резервный режим. Временный 409 не должен завершать процесс.
+        bot.remove_webhook()
+        time.sleep(1)
+        threading.Thread(target=run_web_server, daemon=True).start()
+        logger.info("Rules bot is starting in polling mode")
+        while True:
+            try:
+                bot.infinity_polling(skip_pending=True)
+            except Exception:
+                logger.exception("Ошибка polling, повтор через 5 секунд")
+                time.sleep(5)
