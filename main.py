@@ -245,10 +245,10 @@ def show_home(chat_id):
         bot.send_photo(
             chat_id,
             image,
-            caption=WELCOME_CAPTION,
+            caption=WELCOME_CAPTION + "\n\n<b>Выберите раздел:</b>",
+            reply_markup=start_keyboard(),
             parse_mode="HTML",
         )
-    bot.send_message(chat_id, home_text(), reply_markup=start_keyboard())
 
 
 def split_rules(section):
