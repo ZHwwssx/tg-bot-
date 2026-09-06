@@ -15,7 +15,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
+if not TOKEN:
+    raise RuntimeError("Укажите TELEGRAM_BOT_TOKEN или BOT_TOKEN в Environment Variables Render")
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 app = Flask(__name__)
