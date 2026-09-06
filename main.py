@@ -1,782 +1,290 @@
+import html
 import logging
 import os
 import threading
-from html import escape as html_escape
 
 import telebot
-from flask import Flask, request
+from flask import Flask
 from telebot import types
-from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
 logger = logging.getLogger(__name__)
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
-# Flask нужен для Render, внешнего сигнала и Telegram webhook.
+bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 app = Flask(__name__)
 
+WELCOME_IMAGE_PATH = os.path.join(BASE_DIR, "welcome.jpg")
+WELCOME_CAPTION = (
+    "<b>Приветствую!</b>\n\n"
+    "Бот создан для обзвонов.\n"
+    "Данный бот в версии 1.0.0.0.\n"
+    "Далее будут улучшения.\n\n"
+    "Ботом занималась команда <b>Hareson</b>."
+)
 
-@app.route("/")
-def home():
+
+RULES = {
+    "war": {
+        "title": "Война за территорию",
+        "rules": [
+            "Запрещено афк во время стрельбы (более 15 секунд) | Отключение от сервера",
+            "Запрещено сбивать анимацию аптечек/препаратов/поднятия оружия/употребления еды | Тюрьма 20 минут",
+            "Запрещено писать не по теме (оффтоп) в общий чат нелегальных структур (/gg) | Блокировка чата 20 минут",
+            "Запрещено использовать баллончик и огнетушитель | Тюрьма 60 минут",
+            "Запрещено устраивать любую помеху (например, ДМ, ДБ, использование спец. средств полиции) члену банды в течение 10 минут до начала захвата территории с целью уменьшения шансов банды забрать территорию (антикапт) | Тюрьма 60 минут, при повторе предупреждение на игровой аккаунт",
+            "Запрещено иметь пинг свыше 200 | Отключение от сервера",
+            "Запрещено во время стрельбы использовать препараты/аптечки/еду (в бою) | Тюрьма 10 минут",
+            "Запрещено находиться вне рабочей форме или форме не соответствующему дресс-коду | Тюрьма 10 минут",
+            "Запрещено стрелять до начала боя в сторону игроков | Тюрьма 60 минут",
+            "Запрещено использовать стороннее ПО | Перманентная блокировка всех аккаунтов + блокировка устройства",
+            "Запрещено заходить в любые интерьеры | Тюрьма 10 минут",
+            "Запрещено надевать маску во время капта | Тюрьма на 10 минут",
+            "Запрещено стрелять/убивать игроков, которые проезжают через территорию каптов и не участвуют в капте | Тюрьма 90 минут",
+            "Запрещено провоцировать вражескую группировку | Блокировка чата на 10 минут",
+            "Запрещён багоюз любого типа | Тюрьма на 60 минут, при повторе предупреждение на игровой аккаунт",
+            "Запрещено занимать высотки с помощью вертолета/бага | Предупреждение на игровой аккаунт",
+            "Запрещено третьей ОПГ, сотрудникам городской больницы и другим игрокам, не связанных с каптом, вмешиваться в войну за территорию | Предупреждение на игровой аккаунт",
+            "Запрещено СКшить в жилых зонах гетто — внутри подъездов и домов, а также у входа в них | Тюрьма на 60 минут",
+            "Запрещено использовать стороннее оружие от пункта 4.7 | Тюрьма 10 минут",
+            "Запрещено занимать крыши крупных домов при помощи тюнинга авто/мото/джетпака | Тюрьма на 20 минут",
+            "Запрещён выход из гетто (за территории) | Тюрьма 20 минут",
+            "Запрещена накрутка счётчика убийств (киллов) | Предупреждение на игровой аккаунт",
+            "Запрещено менять цвет ника с фракционного | Отключение от сервера",
+            "Запрещено уходить в AFK или отключаться из игры от смерти | Тюрьма 10 минут",
+            "Запрещено продавать/покупать территории, отдавать территории, а также заключать перемирие с вражеской ОПГ | Выговор лидеру",
+            "Запрещено увольнять/понижать/повышать/принимать/выдавать выговоры людям на капте | Выговор лидеру",
+            "Запрещено делать захват территории ОПГ которая в морозе | Выговор лидеру",
+            "Запрещено иметь больше трех игроков, заблокированных за использование стороннего ПО с одной ОПГ | Выговор лидеру",
+        ],
+    },
+    "kidnap": {
+        "title": "Похищение",
+        "rules": [
+            "Запрещен ПГ (превышение возможностей персонажа): нельзя пытаться вырваться или вступать в драку, если похитителей больше трех либо хотя бы один из них вооружен | Наказание по правилам сервера",
+            "Запрещено называть похитителей по именам, раскрывать их принадлежность к организации и вести лишние разговоры | Наказание по правилам сервера",
+            "Запрещено уходить в АФК или выходить из игры во время похищения, чтобы избежать смерти | Наказание по правилам сервера",
+            "Запрещено провоцировать преступников: оскорблять их, грубить, дерзить или отказываться подчиняться | Наказание по правилам сервера",
+            "Запрещено ничего делать пока персонаж оглушен: писать, смеяться или кричать | Наказание по правилам сервера",
+            "Запрещено говорить с кляпом во рту | Наказание по правилам сервера",
+            "Запрещено задерживать похитителей сотрудникам госструктур, пока они удерживают заложника | Наказание по правилам сервера",
+            "Запрещено подбегать к заложнику или совершать в отношении него какие-либо действия | Наказание по правилам сервера",
+            "Запрещено стрелять в сторону заложника, в том числе по похитителям или машине, в которой он находится | Наказание по правилам сервера",
+            "Запрещено переговорщикам надевать маски и открывать огонь | Наказание по правилам сервера",
+            "Запрещено убивать, обстреливать и похищать переговорщиков | Наказание по правилам сервера",
+            "Запрещено похищать в местах скопления людей и рядом с сотрудниками полиции (разрешено только в малолюдных местах) | Наказание по правилам сервера",
+            "Запрещено похищать в зеленой зоне (ЗЗ) | Наказание по правилам сервера",
+            "Запрещено похищать игроков на рабочем месте, во время выполнения начальных работ, прохождения собеседований или участия в РП-ситуациях | Наказание по правилам сервера",
+            "Запрещено удерживать заложника в квартире, доме, на базе похитителей или в местах спавна | Наказание по правилам сервера",
+            "Запрещено похищать медиков, гражданских и переговорщиков | Наказание по правилам сервера",
+            "Запрещено отыгрывать убийство лидеров | Наказание по правилам сервера",
+            "Запрещено убивать заложника после получения выкупа | Наказание по правилам сервера",
+        ],
+    },
+    "base": {
+        "title": "Нападение на военную базу",
+        "rules": [
+            "Запрещено находиться на ВЧ без маски | Тюрьма 30 минут",
+            "Запрещено забегать в интерьеры к военнослужащим | Тюрьма 30 минут / Предупреждение",
+            "Запрещено использование аптечки/препаратов в бою | Тюрьма 30 минут",
+            "Запрещено ДМ вне территории военной базы (не военнослужащих) | Тюрьма 90 минут",
+            "Запрещено нахождение на военной части вне рабочей формы | Тюрьма 10 минут",
+            "Запрещено использовать анимации, помогающие избежать смерти | Тюрьма 30 минут",
+            "Запрещено нападение менее 5-ти человек | Тюрьма 30 минут",
+        ],
+    },
+    "cash": {
+        "title": "Ограбление инкассаторов",
+        "rules": [
+            "Запрещено грабить инкассаторов с 00:00 до 06:00 по серверному времени | Тюрьма 60 минут",
+            "Запрещено заранее перекрывать дорогу транспортом или устанавливать блокпосты | Тюрьма 30 минут / Предупреждение",
+            "Запрещено подрезать машину инкассаторов «по пингу» | Тюрьма 30 минут",
+            "Запрещено стрелять из окна движущегося автомобиля по машине инкассаторов или по самим инкассаторам | Предупреждение",
+            "Запрещено использовать недоработки мода и баги игры | Тюрьма 30 минут",
+            "Запрещено использовать препараты во время перестрелки в ходе ограбления | Тюрьма 30 минут",
+            "Запрещено выходить из игры во время ограбления | Тюрьма 30 минут / Предупреждение",
+            "Запрещено забегать в расположенные рядом магазины или интерьеры и лечиться в них | Тюрьма 60 минут",
+            "Запрещено ремонтировать свой транспорт после начала ограбления | Тюрьма 60 минут",
+            "Запрещено участвовать в ограблении без маски или избивать инкассаторов голыми руками | Тюрьма 60–90 минут / Предупреждение",
+        ],
+    },
+    "trucks": {
+        "title": "Нападение для угона фур с материалами",
+        "rules": [
+            "Запрещено ДМить на складе и шахте ОПГ и сотрудников гос. структур | Тюрьма 90 минут",
+            "Запрещен ДМ игроков на шахте | Предупреждение (при массовом — бан 1-3)",
+            "Запрещено брать танк | Предупреждение",
+            "Запрещено нападать на фуру вне мест, разрешенных правилами | Тюрьма 90 минут",
+            "Запрещено создавать помеху другим при въезде на склад (заставлять проходы фурами) | Кик",
+        ],
+    },
+}
+
+
+@app.get("/")
+def health_check():
     return "Bot is alive and running!"
 
 
-@app.route("/telegram-webhook", methods=["POST"])
-def telegram_webhook():
+def start_keyboard():
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(types.InlineKeyboardButton("Правила", callback_data="menu:rules"))
+    return keyboard
+
+
+def rules_keyboard():
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        types.InlineKeyboardButton("Госс", callback_data="menu:goss"),
+        types.InlineKeyboardButton("Гетто", callback_data="menu:ghetto"),
+        types.InlineKeyboardButton("⬅️ Назад", callback_data="menu:home"),
+    )
+    return keyboard
+
+
+def ghetto_keyboard():
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        types.InlineKeyboardButton("Война за территорию", callback_data="section:war:0"),
+        types.InlineKeyboardButton("Похищение", callback_data="section:kidnap:0"),
+        types.InlineKeyboardButton("ВЧ", callback_data="section:base:0"),
+        types.InlineKeyboardButton("Инкассатор", callback_data="section:cash:0"),
+        types.InlineKeyboardButton("Угон фур с матами", callback_data="section:trucks:0"),
+        types.InlineKeyboardButton("⬅️ Назад", callback_data="menu:rules"),
+    )
+    return keyboard
+
+
+def home_text():
+    return "Выберите раздел:"
+
+
+def show_home(chat_id):
+    with open(WELCOME_IMAGE_PATH, "rb") as image:
+        bot.send_photo(
+            chat_id,
+            image,
+            caption=WELCOME_CAPTION,
+            parse_mode="HTML",
+        )
+    bot.send_message(chat_id, home_text(), reply_markup=start_keyboard())
+
+
+def split_rules(section):
+    data = RULES[section]
+    title = html.escape(data["title"])
+    pages = []
+    current = f"<b>{title}</b>\n\n"
+
+    for number, rule in enumerate(data["rules"], start=1):
+        line = f"{number}. {html.escape(rule)}\n"
+        if len(current) + len(line) > 3600 and current.strip() != f"<b>{title}</b>":
+            pages.append(current.rstrip())
+            current = f"<b>{title} — продолжение</b>\n\n"
+        current += line
+
+    if current.strip():
+        pages.append(current.rstrip())
+    return pages
+
+
+def section_keyboard(section, page, total):
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    navigation = []
+    if page > 0:
+        navigation.append(types.InlineKeyboardButton("◀️ Предыдущая", callback_data=f"section:{section}:{page - 1}"))
+    if page < total - 1:
+        navigation.append(types.InlineKeyboardButton("Следующая ▶️", callback_data=f"section:{section}:{page + 1}"))
+    if navigation:
+        keyboard.row(*navigation)
+    keyboard.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="menu:ghetto"))
+    return keyboard
+
+
+def show_section(call, section, page):
+    pages = split_rules(section)
+    page = max(0, min(page, len(pages) - 1))
+    bot.edit_message_text(
+        pages[page],
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        reply_markup=section_keyboard(section, page, len(pages)),
+        parse_mode="HTML",
+    )
+
+
+@bot.message_handler(commands=["start"])
+def handle_start(message):
+    show_home(message.chat.id)
+
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
     try:
-        update = types.Update.de_json(request.get_data().decode("utf-8"))
-        bot.process_new_updates([update])
-        return "OK", 200
+        bot.answer_callback_query(call.id)
+        action = call.data.split(":")
+
+        if call.data == "menu:home":
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+            show_home(call.message.chat.id)
+            return
+
+        if call.data == "menu:rules":
+            bot.edit_message_text(
+                "<b>Правила</b>\n\nВыберите раздел:",
+                call.message.chat.id,
+                call.message.message_id,
+                reply_markup=rules_keyboard(),
+                parse_mode="HTML",
+            )
+            return
+
+        if call.data == "menu:ghetto":
+            bot.edit_message_text(
+                "<b>Гетто</b>\n\nВыберите категорию правил:",
+                call.message.chat.id,
+                call.message.message_id,
+                reply_markup=ghetto_keyboard(),
+                parse_mode="HTML",
+            )
+            return
+
+        if call.data == "menu:goss":
+            bot.edit_message_text(
+                "<b>Госс</b>\n\nПравила раздела «Госс» будут добавлены в следующих улучшениях бота.",
+                call.message.chat.id,
+                call.message.message_id,
+                reply_markup=types.InlineKeyboardMarkup().add(
+                    types.InlineKeyboardButton("⬅️ Назад", callback_data="menu:rules")
+                ),
+                parse_mode="HTML",
+            )
+            return
+
+        if len(action) == 3 and action[0] == "section" and action[1] in RULES:
+            show_section(call, action[1], int(action[2]))
+            return
+
     except Exception:
-        logger.exception("Ошибка обработки Telegram webhook")
-        return "Webhook error", 500
+        logger.exception("Ошибка обработки callback")
+        try:
+            bot.answer_callback_query(call.id, "Не удалось открыть раздел", show_alert=True)
+        except Exception:
+            pass
 
 
-def run_flask():
+def run_web_server():
     port = int(os.environ.get("PORT", "8080"))
     app.run(host="0.0.0.0", port=port)
 
 
-TOKEN = os.environ["BOT_TOKEN"]
-bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
-
-
-def read_optional_int(name):
-    value = os.environ.get(name, "").strip()
-    if not value:
-        return 0
-    try:
-        return int(value)
-    except ValueError:
-        logger.warning("Некорректное значение %s", name)
-        return 0
-
-
-APPLICATION_GROUP_ID = read_optional_int("APPLICATION_GROUP_ID")
-LEADER_ID = read_optional_int("LEADER_ID")
-DEPUTY_ID = read_optional_int("DEPUTY_ID")
-
-APPLICATION_QUESTIONS = [
-    ("Твой NickName", "Напиши свой NickName.", "text"),
-    ("Твой LvL", "Напиши свой игровой уровень.", "text"),
-    ("Твое Имя", "Как тебя зовут?", "text"),
-    ("Твой возраст", "Сколько тебе лет?", "text"),
-    ("Есть ли дискорд", "Напиши свой Discord или ответь «нет».", "text"),
-    ("Имеется ли донат?", "Если да, напиши какой. Если нет — напиши «нет».", "text"),
-    ("Ежедневный онлайн", "Сколько времени ты обычно проводишь в игре ежедневно?", "text"),
-    ("Стаж игры", "Как давно ты играешь?", "text"),
-    ("Запиши голосовое сообщение", "Например, скажи своё имя и NickName.", "voice"),
-]
-
-WELCOME_IMAGE_PATH = os.path.join(os.path.dirname(__file__), "assets", "sk_welcome.jpg")
-WELCOME_TEXT = (
-    "<b>SK CLAN</b>\n\n"
-    "Приветствую тебя в анкете на вступление в клан <b>SK</b>.\n\n"
-    "Заполни все пункты честно и не забудь отправить голосовое сообщение.\n\n"
-    "<i>Удачи на отборе!</i>"
-)
-FINAL_TEXT = (
-    "<b>Анкета завершена</b>\n\n"
-    "Твоя анкета передана Лидеру и Со-лидеру клана <b>SK</b>.\n"
-    "Ожидай ответа.\n\n"
-    "✅"
-)
-VOICE_WARNING = (
-    "<b>Важно:</b> Голосовое сообщение нужно для подтверждения возраста, "
-    "а также чтобы заметить тебя при повторном входе в клан с другого аккаунта."
-)
-
-
-# Состояние хранится в памяти процесса.
-data_lock = threading.Lock()
-application_states = {}
-application_by_message = {}
-pending_replies = {}
-conversation_requests = {}
-conversation_sessions = {}
-conversation_group_messages = {}
-CONVERSATION_CONTENT_TYPES = [
-    "text", "voice", "photo", "video", "document", "audio",
-    "sticker", "animation", "contact", "location", "venue", "poll", "dice",
-]
-
-
-def clean_text(value):
-    return html_escape(str(value), quote=False)
-
-
-def style_text(text):
-    text = str(text)
-    if text.startswith("<b>SK</b>") or text.startswith("<b>SK CLAN</b>"):
-        return text
-    return f"<b>SK</b>\n\n{text}"
-
-
-def configure_bot_menu():
-    try:
-        bot.set_my_commands([
-            types.BotCommand("start", "Открыть главное меню"),
-        ])
-        bot.set_chat_menu_button(menu_button=types.MenuButtonCommands())
-        logger.info("Меню бота настроено")
-    except Exception:
-        logger.exception("Не удалось настроить меню бота")
-
-
-def safe_send(chat_id, text, **kwargs):
-    try:
-        kwargs.setdefault("parse_mode", "HTML")
-        kwargs.setdefault("disable_web_page_preview", True)
-        return bot.send_message(chat_id, style_text(text), **kwargs)
-    except Exception:
-        logger.exception("Ошибка отправки сообщения в чат %s", chat_id)
-        return None
-
-
-def safe_delete(chat_id, message_id):
-    try:
-        bot.delete_message(chat_id, message_id)
-    except Exception:
-        logger.debug("Не удалось удалить сообщение %s в чате %s", message_id, chat_id)
-
-
-def conversation_request_keyboard(user_id):
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    keyboard.add(
-        InlineKeyboardButton("Принять", callback_data=f"conversation_accept:{user_id}"),
-        InlineKeyboardButton("Отклонить", callback_data=f"conversation_decline:{user_id}"),
-    )
-    return keyboard
-
-
-def conversation_user_keyboard():
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(InlineKeyboardButton("Закончить беседу", callback_data="conversation_end_user"))
-    return keyboard
-
-
-def conversation_group_keyboard(user_id):
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(InlineKeyboardButton("Закончить беседу", callback_data=f"conversation_end_group:{user_id}"))
-    return keyboard
-
-
-def remove_inline_keyboard(chat_id, message_id):
-    try:
-        bot.edit_message_reply_markup(chat_id, message_id, reply_markup=None)
-    except Exception:
-        logger.debug("Не удалось убрать кнопки сообщения %s", message_id)
-
-
-def start_conversation_request(chat_id, user):
-    if not is_configured():
-        safe_send(chat_id, "Беседа пока недоступна: не указана APPLICATION_GROUP_ID.", reply_markup=back_keyboard())
-        return
-
-    user_id = user.id
-    with data_lock:
-        if user_id in conversation_sessions:
-            safe_send(chat_id, "У тебя уже есть активная беседа.", reply_markup=conversation_user_keyboard())
-            return
-        if user_id in conversation_requests:
-            safe_send(chat_id, "Твой запрос уже отправлен лидерскому составу.", reply_markup=back_keyboard())
-            return
-
-    display_name = clean_text(user.full_name or user.username or str(user_id))
-    username = f"@{clean_text(user.username)}" if user.username else "не указан"
-    request_text = (
-        "<b>Запрос на беседу с лидерским составом</b>\n\n"
-        f"Пользователь: <b>{display_name}</b>\n"
-        f"Username: {username}\n"
-        f"ID: <code>{user_id}</code>\n\n"
-        "Выберите действие ниже."
-    )
-    sent = safe_send(
-        APPLICATION_GROUP_ID,
-        request_text,
-        reply_markup=conversation_request_keyboard(user_id),
-    )
-    if not sent:
-        safe_send(chat_id, "Не удалось отправить запрос в группу. Попробуй позже.", reply_markup=back_keyboard())
-        return
-
-    with data_lock:
-        conversation_requests[user_id] = {
-            "group_id": APPLICATION_GROUP_ID,
-            "message_id": sent.message_id,
-        }
-    safe_send(
-        chat_id,
-        "Запрос отправлен лидерскому составу. Ожидай принятия беседы.",
-        reply_markup=back_keyboard(),
-    )
-
-
-def accept_conversation(group_id, message_id, reviewer_id, user_id):
-    with data_lock:
-        if user_id in conversation_sessions:
-            return "active"
-        conversation_requests.pop(user_id, None)
-        conversation_sessions[user_id] = {
-            "user_chat_id": user_id,
-            "group_id": group_id,
-            "request_message_id": message_id,
-            "reviewer_id": reviewer_id,
-        }
-
-    remove_inline_keyboard(group_id, message_id)
-    try:
-        bot.edit_message_reply_markup(
-            group_id,
-            message_id,
-            reply_markup=conversation_group_keyboard(user_id),
-        )
-    except Exception:
-        logger.debug("Не удалось добавить кнопку завершения беседы")
-    safe_send(
-        user_id,
-        "Беседа принята. Можешь написать сообщение лидерскому составу.",
-        reply_markup=conversation_user_keyboard(),
-    )
-    safe_send(
-        group_id,
-        "Беседа открыта. Ответьте на сообщение пользователя, чтобы начать диалог.",
-        reply_markup=conversation_group_keyboard(user_id),
-    )
-    return "accepted"
-
-
-def decline_conversation(group_id, message_id, user_id):
-    with data_lock:
-        conversation_requests.pop(user_id, None)
-        active = user_id in conversation_sessions
-    if active:
-        return "active"
-    remove_inline_keyboard(group_id, message_id)
-    safe_send(user_id, "Запрос на беседу отклонён лидерским составом.", reply_markup=back_keyboard())
-    safe_send(group_id, "Запрос на беседу отклонён.")
-    return "declined"
-
-
-def close_conversation(user_id, ended_by, source_group_id=None):
-    with data_lock:
-        session = conversation_sessions.pop(user_id, None)
-        if not session:
-            return False
-        conversation_requests.pop(user_id, None)
-        stale_keys = [
-            key for key, target_user_id in conversation_group_messages.items()
-            if target_user_id == user_id
-        ]
-        for key in stale_keys:
-            conversation_group_messages.pop(key, None)
-
-    group_id = session["group_id"]
-    if ended_by == "user":
-        safe_send(user_id, "Беседа завершена пользователем.", reply_markup=back_keyboard())
-        safe_send(group_id, "Пользователь завершил беседу.")
-    else:
-        safe_send(user_id, "Беседа завершена лидерским составом.", reply_markup=back_keyboard())
-        safe_send(group_id, "Беседа завершена лидерским составом.")
-    return True
-
-
-def conversation_user_for_group_message(message):
-    if message.chat.id != APPLICATION_GROUP_ID:
-        return 0
-    reply_to = getattr(message, "reply_to_message", None)
-    reply_message_id = getattr(reply_to, "message_id", None)
-    with data_lock:
-        if reply_message_id:
-            user_id = conversation_group_messages.get((message.chat.id, reply_message_id))
-            if user_id in conversation_sessions:
-                return user_id
-        active_users = [
-            user_id
-            for user_id, session in conversation_sessions.items()
-            if session["group_id"] == message.chat.id
-        ]
-    return active_users[0] if len(active_users) == 1 else 0
-
-
-def send_conversation_message(message, target_chat_id, user_id, from_group):
-    keyboard = conversation_user_keyboard() if from_group else conversation_group_keyboard(user_id)
-    try:
-        if message.content_type == "text":
-            if from_group:
-                heading = f"<b>Сообщение от {reviewer_label(message.from_user.id)}</b>"
-            else:
-                heading = "<b>Сообщение от пользователя</b>"
-            return safe_send(
-                target_chat_id,
-                f"{heading}\n\n<blockquote>{clean_text(message.text)}</blockquote>",
-                reply_markup=keyboard,
-            )
-
-        if message.content_type == "voice":
-            if from_group:
-                caption = f"<b>Голосовое сообщение от {reviewer_label(message.from_user.id)}</b>"
-            else:
-                caption = "<b>Голосовое сообщение от пользователя</b>"
-            return bot.send_voice(
-                target_chat_id,
-                message.voice.file_id,
-                caption=caption,
-                parse_mode="HTML",
-                reply_markup=keyboard,
-            )
-
-        return bot.copy_message(
-            target_chat_id,
-            message.chat.id,
-            message.message_id,
-            reply_markup=keyboard,
-        )
-    except Exception:
-        logger.exception("Не удалось переслать сообщение беседы")
-        return None
-
-
-def relay_user_conversation_message(message):
-    with data_lock:
-        session = conversation_sessions.get(message.chat.id)
-    if not session:
-        return
-    sent = send_conversation_message(
-        message,
-        session["group_id"],
-        message.chat.id,
-        from_group=False,
-    )
-    if sent and getattr(sent, "message_id", None):
-        with data_lock:
-            conversation_group_messages[(session["group_id"], sent.message_id)] = message.chat.id
-    if not sent:
-        safe_send(message.chat.id, "Не удалось отправить сообщение лидерскому составу. Попробуй ещё раз.", reply_markup=conversation_user_keyboard())
-
-
-def relay_group_conversation_message(message, user_id):
-    with data_lock:
-        session = conversation_sessions.get(user_id)
-    if not session:
-        return
-    sent = send_conversation_message(
-        message,
-        user_id,
-        user_id,
-        from_group=True,
-    )
-    if not sent:
-        safe_send(message.chat.id, "Не удалось отправить сообщение пользователю.", reply_markup=conversation_group_keyboard(user_id))
-
-
-def main_menu_keyboard():
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(InlineKeyboardButton("Заполнить анкету", callback_data="open_application"))
-    keyboard.add(InlineKeyboardButton("Беседа с лидерским составом", callback_data="open_conversation"))
-    return keyboard
-
-
-def back_keyboard():
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(InlineKeyboardButton("Назад", callback_data="user_back"))
-    return keyboard
-
-
-def application_back_keyboard():
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(InlineKeyboardButton("Назад", callback_data="application_back"))
-    return keyboard
-
-
-def review_keyboard(message_id, user_chat_id=0):
-      keyboard = InlineKeyboardMarkup(row_width=1)
-      callback_target = f"{message_id}:{user_chat_id}" if user_chat_id else str(message_id)
-      keyboard.add(InlineKeyboardButton("Ответить", callback_data=f"answer_application:{callback_target}"))
-      keyboard.add(InlineKeyboardButton("Назад", callback_data=f"back_application:{message_id}"))
-      return keyboard
-    
-
-def waiting_keyboard(message_id):
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"back_application:{message_id}"))
-    return keyboard
-
-
-def is_configured():
-    return APPLICATION_GROUP_ID != 0
-
-
-def is_reviewer(user_id):
-    if LEADER_ID and user_id == LEADER_ID:
-        return True
-    if DEPUTY_ID and user_id == DEPUTY_ID:
-        return True
-    if not is_configured():
-        return False
-    try:
-        member = bot.get_chat_member(APPLICATION_GROUP_ID, user_id)
-        return member.status in {"administrator", "creator"}
-    except Exception:
-        logger.exception("Не удалось проверить права пользователя %s", user_id)
-        return False
-
-
-def reviewer_label(user_id):
-    if LEADER_ID and user_id == LEADER_ID:
-        return "Лидера клана SK"
-    if DEPUTY_ID and user_id == DEPUTY_ID:
-        return "со-лидера клана SK"
-    return "Лидера или со-лидера клана SK"
-
-
-def send_question(chat_id):
-    with data_lock:
-        state = application_states.get(chat_id)
-        if not state:
-            return
-        index = state["index"]
-        title, prompt, kind = APPLICATION_QUESTIONS[index]
-        previous_message_id = state.get("question_message_id")
-        state["question_message_id"] = None
-
-    if previous_message_id:
-        safe_delete(chat_id, previous_message_id)
-
-    text = (
-        f"<b>Вопрос {index + 1}/{len(APPLICATION_QUESTIONS)}</b>\n\n"
-        f"<b>{clean_text(title)}</b>\n"
-        f"{clean_text(prompt)}"
-    )
-    if kind == "voice":
-        text += f"\n\n{VOICE_WARNING}"
-
-    sent = safe_send(chat_id, text, reply_markup=application_back_keyboard())
-    if sent:
-        with data_lock:
-            state = application_states.get(chat_id)
-            if state:
-                state["question_message_id"] = sent.message_id
-
-
-def start_application(chat_id):
-    if not is_configured():
-        safe_send(chat_id, "Анкета пока не настроена: укажите APPLICATION_GROUP_ID.", reply_markup=back_keyboard())
-        return
-    with data_lock:
-        application_states[chat_id] = {"index": 0, "answers": [], "question_message_id": None}
-    send_question(chat_id)
-
-
-def format_application(answers, applicant=None):
-    lines = ["<b>Анкета</b>", ""]
-    if applicant is not None:
-        display_name = clean_text(applicant.full_name or applicant.username or str(applicant.id))
-        username = f"@{clean_text(applicant.username)}" if applicant.username else "не указан"
-        lines.extend([
-            f"<b>Пользователь:</b> {display_name}",
-            f"<b>Username:</b> {username}",
-            f"<b>Telegram ID:</b> <code>{applicant.id}</code>",
-            "",
-        ])
-    for (title, _prompt, _kind), answer in zip(APPLICATION_QUESTIONS, answers):
-        if isinstance(answer, dict) and answer.get("type") == "voice":
-            value = "Голосовое сообщение прикреплено ниже."
-        else:
-            value = clean_text(answer)
-        lines.append(f"<b>{clean_text(title)}:</b> {value}")
-    return "\n".join(lines)
-
-
-def edit_review_buttons(message_id, keyboard):
-    try:
-        bot.edit_message_reply_markup(APPLICATION_GROUP_ID, message_id, reply_markup=keyboard)
-    except Exception:
-        logger.debug("Не удалось обновить кнопки сообщения %s", message_id)
-
-
-def finish_application(chat_id, answers, applicant=None):
-    if not is_configured():
-        safe_send(chat_id, "Не удалось передать анкету: не указана APPLICATION_GROUP_ID.", reply_markup=back_keyboard())
-        return
-
-    sent = safe_send(APPLICATION_GROUP_ID, format_application(answers, applicant))
-    if not sent:
-        safe_send(chat_id, "Не удалось передать анкету в группу. Попробуй позже.", reply_markup=back_keyboard())
-        return
-
-    with data_lock:
-        application_by_message[(APPLICATION_GROUP_ID, sent.message_id)] = chat_id
-    edit_review_buttons(sent.message_id, review_keyboard(sent.message_id))
-
-    for answer in answers:
-        if isinstance(answer, dict) and answer.get("type") == "voice":
-            try:
-                bot.send_voice(
-                    APPLICATION_GROUP_ID,
-                    answer["file_id"],
-                    caption="<b>SK</b>\n\n<b>Голосовое сообщение кандидата</b>",
-                    parse_mode="HTML",
-                )
-            except Exception:
-                logger.exception("Не удалось отправить голосовое сообщение кандидата")
-
-    safe_send(chat_id, FINAL_TEXT, reply_markup=back_keyboard())
-
-
-def send_reviewer_reply(group_id, reviewer_id, text):
-    with data_lock:
-        pending = pending_replies.pop((group_id, reviewer_id), None)
-    if not pending:
-        return
-
-    label = reviewer_label(reviewer_id)
-    reply_text = (
-        f"<b>Ответ от {label}</b>\n\n"
-        f"<blockquote>{clean_text(text)}</blockquote>"
-    )
-    sent = safe_send(pending["user_chat_id"], reply_text, reply_markup=back_keyboard())
-    if sent:
-        edit_review_buttons(pending["message_id"], review_keyboard(pending["message_id"]))
-        safe_send(group_id, "Ответ отправлен пользователю.")
-    else:
-        safe_send(group_id, "Не удалось отправить ответ пользователю. Возможно, он заблокировал бота.")
-
-
-@bot.message_handler(commands=["start"])
-def send_welcome(message):
-    try:
-        with open(WELCOME_IMAGE_PATH, "rb") as photo:
-            bot.send_photo(
-                message.chat.id,
-                photo,
-                caption=WELCOME_TEXT,
-                parse_mode="HTML",
-                reply_markup=main_menu_keyboard(),
-            )
-    except FileNotFoundError:
-        logger.exception("Файл приветственного изображения не найден")
-        safe_send(message.chat.id, WELCOME_TEXT, reply_markup=main_menu_keyboard())
-    except Exception:
-        logger.exception("Не удалось отправить приветственное изображение")
-        safe_send(message.chat.id, WELCOME_TEXT, reply_markup=main_menu_keyboard())
-
-
-@bot.callback_query_handler(func=lambda call: True)
-def callback_handler(call):
-    chat_id = call.message.chat.id
-    message_id = call.message.message_id
-    data = call.data or ""
-    try:
-        bot.answer_callback_query(call.id)
-    except Exception:
-        logger.debug("Не удалось подтвердить callback %s", call.id)
-
-    if data == "open_conversation":
-        safe_delete(chat_id, message_id)
-        start_conversation_request(chat_id, call.from_user)
-        return
-
-    if data.startswith("conversation_accept:"):
-        if chat_id != APPLICATION_GROUP_ID or not is_reviewer(call.from_user.id):
-            safe_send(chat_id, "Только лидерский состав может принять запрос.")
-            return
-        try:
-            user_id = int(data.split(":", 1)[1])
-        except ValueError:
-            return
-        result = accept_conversation(chat_id, message_id, call.from_user.id, user_id)
-        if result == "active":
-            safe_send(chat_id, "У этого пользователя уже есть активная беседа.")
-        return
-
-    if data.startswith("conversation_decline:"):
-        if chat_id != APPLICATION_GROUP_ID or not is_reviewer(call.from_user.id):
-            safe_send(chat_id, "Только лидерский состав может отклонить запрос.")
-            return
-        try:
-            user_id = int(data.split(":", 1)[1])
-        except ValueError:
-            return
-        result = decline_conversation(chat_id, message_id, user_id)
-        if result == "active":
-            safe_send(chat_id, "Нельзя отклонить уже активную беседу.")
-        return
-
-    if data == "conversation_end_user":
-        close_conversation(chat_id, "user")
-        return
-
-    if data.startswith("conversation_end_group:"):
-        if chat_id != APPLICATION_GROUP_ID or not is_reviewer(call.from_user.id):
-            safe_send(chat_id, "Только лидерский состав может закончить беседу.")
-            return
-        try:
-            user_id = int(data.split(":", 1)[1])
-        except ValueError:
-            return
-        close_conversation(user_id, "group", chat_id)
-        return
-
-    if data == "open_application":
-        safe_delete(chat_id, message_id)
-        start_application(chat_id)
-        return
-
-    if data == "user_back":
-        safe_delete(chat_id, message_id)
-        send_welcome(call.message)
-        return
-
-    if data == "application_back":
-        with data_lock:
-            state = application_states.get(chat_id)
-            if not state or state["index"] == 0:
-                application_states.pop(chat_id, None)
-                return_to_menu = True
-            else:
-                state["index"] -= 1
-                if state["answers"]:
-                    state["answers"].pop()
-                return_to_menu = False
-        safe_delete(chat_id, message_id)
-        if return_to_menu:
-            send_welcome(call.message)
-        else:
-            send_question(chat_id)
-        return
-
-    if data.startswith("answer_application:"):
-        if chat_id != APPLICATION_GROUP_ID:
-            return
-        parts = data.split(":")
-        try:
-            source_message_id = int(parts[1])
-            callback_user_id = int(parts[2]) if len(parts) > 2 else 0
-        except (IndexError, ValueError):
-            return
-        with data_lock:
-            user_chat_id = application_by_message.get((chat_id, source_message_id))
-            if not user_chat_id and callback_user_id:
-                user_chat_id = callback_user_id
-            if user_chat_id:
-                pending_replies[(chat_id, call.from_user.id)] = {
-                    "user_chat_id": user_chat_id,
-                    "message_id": source_message_id,
-                }
-        if not user_chat_id:
-            safe_send(chat_id, "Анкета не найдена. Начните новую анкету, если бот был перезапущен.")
-            return
-        edit_review_buttons(source_message_id, waiting_keyboard(source_message_id))
-        safe_send(
-            chat_id,
-            "Нажмите «Ответить» на это сообщение и напишите ответ. Он будет отправлен пользователю.",
-            reply_to_message_id=source_message_id,
-            reply_markup=types.ForceReply(selective=False),
-        )
-        return
-    if data.startswith("back_application:"):
-        try:
-            source_message_id = int(data.split(":", 1)[1])
-        except ValueError:
-            return
-        with data_lock:
-            pending_replies.pop((chat_id, call.from_user.id), None)
-        edit_review_buttons(source_message_id, review_keyboard(source_message_id, application_by_message.get((chat_id, source_message_id), 0)))
-
-
-@bot.message_handler(
-    func=lambda message: message.chat.id in conversation_sessions,
-    content_types=CONVERSATION_CONTENT_TYPES,
-)
-def handle_conversation_user_message(message):
-    relay_user_conversation_message(message)
-
-
-@bot.message_handler(
-    func=lambda message: message.chat.id in application_states,
-    content_types=["text", "voice"],
-)
-def handle_application_input(message):
-    chat_id = message.chat.id
-    with data_lock:
-        state = application_states.get(chat_id)
-        if not state:
-            return
-        index = state["index"]
-        title, prompt, kind = APPLICATION_QUESTIONS[index]
-
-    if kind == "voice":
-        if not getattr(message, "voice", None):
-            safe_send(chat_id, "Пожалуйста, отправь именно голосовое сообщение.", reply_markup=application_back_keyboard())
-            return
-        answer = {"type": "voice", "file_id": message.voice.file_id}
-    else:
-        if not message.text or not message.text.strip():
-            safe_send(chat_id, "Пожалуйста, ответь текстом.", reply_markup=application_back_keyboard())
-            return
-        answer = message.text.strip()
-
-    with data_lock:
-        state = application_states.get(chat_id)
-        if not state:
-            return
-        state["answers"].append(answer)
-        state["index"] += 1
-        finished = state["index"] >= len(APPLICATION_QUESTIONS)
-        question_message_id = state.get("question_message_id")
-        answers = list(state["answers"])
-        if finished:
-            application_states.pop(chat_id, None)
-
-    if question_message_id:
-        safe_delete(chat_id, question_message_id)
-    if finished:
-        finish_application(chat_id, answers, message.from_user)
-    else:
-        send_question(chat_id)
-
-
-@bot.message_handler(
-    func=lambda message: (
-        message.chat.id == APPLICATION_GROUP_ID
-        and conversation_user_for_group_message(message) != 0
-    ),
-    content_types=CONVERSATION_CONTENT_TYPES,
-)
-def handle_conversation_group_message(message):
-    if not is_reviewer(getattr(message.from_user, "id", 0)):
-        return
-    user_id = conversation_user_for_group_message(message)
-    if user_id:
-        relay_group_conversation_message(message, user_id)
-
-
-@bot.message_handler(
-    func=lambda message: (
-        message.chat.id == APPLICATION_GROUP_ID
-        and (message.chat.id, getattr(message.from_user, "id", 0)) in pending_replies
-    )
-)
-def handle_reviewer_reply(message):
-    if not message.text or not message.text.strip():
-        safe_send(message.chat.id, "Пожалуйста, напиши ответ текстом.")
-        return
-    send_reviewer_reply(message.chat.id, message.from_user.id, message.text.strip())
-
-
 if __name__ == "__main__":
-    configure_bot_menu()
-    external_url = os.environ.get("RENDER_EXTERNAL_URL")
-    if external_url:
-        webhook_url = f"{external_url.rstrip('/')}/telegram-webhook"
-        bot.remove_webhook()
-        bot.set_webhook(url=webhook_url)
-        logger.info("Telegram webhook включён: %s", webhook_url)
-        # Render должен продолжать работать после установки webhook.
-        run_flask()
-    else:
-        logger.info("RENDER_EXTERNAL_URL не найден, запускаем polling")
-        threading.Thread(target=run_flask, daemon=True).start()
-        bot.infinity_polling(skip_pending=True)
+    threading.Thread(target=run_web_server, daemon=True).start()
+    logger.info("Rules bot is starting")
+    bot.infinity_polling(skip_pending=True)
