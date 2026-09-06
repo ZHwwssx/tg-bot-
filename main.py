@@ -2,6 +2,7 @@ import html
 import logging
 import os
 import threading
+import time
 
 import telebot
 from flask import Flask
@@ -360,6 +361,10 @@ def run_web_server():
 
 
 if __name__ == "__main__":
+    # Удаляем webhook от старой версии перед запуском polling.
+    # Иначе Telegram может не передавать callback-нажатия кнопок.
+    bot.remove_webhook()
+    time.sleep(1)
     threading.Thread(target=run_web_server, daemon=True).start()
     logger.info("Rules bot is starting")
     bot.infinity_polling(skip_pending=True)
