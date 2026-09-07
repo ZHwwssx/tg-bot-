@@ -290,16 +290,16 @@ def build_interview_questions(level):
             if " | " not in rule:
                 continue
             statement, punishment = rule.split(" | ", 1)
-            statement = re.sub(r"^Запрещ(?:ено|ен|ена|ён|ены)\\s+", "", statement)
+            statement = re.sub(r"^Запрещ(?:ено|ен|ена|ён|ены)\s+", "", statement)
             statement = html.escape(statement)
             punishment = html.escape(punishment)
             question = f"Разрешено ли {statement}?"
             if level == "deputy":
-                text = f"<b>Вопрос для обзвона на заместителя</b>\\n\\n{question}\\n\\n<b>Ответ:</b> Нет."
+                text = f"<b>Вопрос для обзвона на заместителя</b>\n\n{question}\n\n<b>Ответ:</b> Нет."
             else:
                 text = (
-                    f"<b>Вопрос для обзвона на лидера</b>\\n\\n{question}\\n\\n"
-                    f"<b>Ответ:</b> Нет.\\n<b>Какое наказание?</b> — {punishment}."
+                    f"<b>Вопрос для обзвона на лидера</b>\n\n{question}\n\n"
+                    f"<b>Ответ:</b> Нет.\n<b>Какое наказание?</b> — {punishment}."
                 )
             questions.append(text)
     return questions
@@ -339,7 +339,7 @@ def show_interview_question(call, level, index):
         )
         return
     index = max(0, min(index, len(questions) - 1))
-    text = f"{questions[index]}\\n\\n<i>Вопрос {index + 1} из {len(questions)}</i>"
+    text = f"{questions[index]}\n\n<i>Вопрос {index + 1} из {len(questions)}</i>"
     bot.edit_message_text(
         text,
         call.message.chat.id,
@@ -513,7 +513,7 @@ def handle_callback(call):
 
         if len(action) == 3 and action[0] == "interview" and action[1] == "levelback":
             bot.edit_message_text(
-                "<b>Текстовый обзвон</b>\\n\\nВыберите сложность обзвона:",
+                "<b>Текстовый обзвон</b>\n\nВыберите сложность обзвона:",
                 call.message.chat.id,
                 call.message.message_id,
                 reply_markup=interview_level_keyboard(),
@@ -537,7 +537,7 @@ def handle_callback(call):
             organization = organization_names.get(action[1])
             if organization and action[1] in OPG_INTERVIEW_KEYS:
                 bot.edit_message_text(
-                    f"<b>{organization}</b>\\n\\nВыберите сложность обзвона:",
+                    f"<b>{organization}</b>\n\nВыберите сложность обзвона:",
                     call.message.chat.id,
                     call.message.message_id,
                     reply_markup=interview_level_keyboard(),
@@ -545,7 +545,7 @@ def handle_callback(call):
                 )
             elif organization:
                 bot.edit_message_text(
-                    f"<b>{organization}</b>\\n\\nТекстовый обзвон для этой организации пока не настроен.",
+                    f"<b>{organization}</b>\n\nТекстовый обзвон для этой организации пока не настроен.",
                     call.message.chat.id,
                     call.message.message_id,
                     reply_markup=types.InlineKeyboardMarkup().add(
