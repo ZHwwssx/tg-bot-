@@ -283,6 +283,221 @@ def start_keyboard():
 
 INTERVIEW_RULE_SECTIONS = ("war", "kidnap", "base", "cash", "trucks", "airdrop")
 OPG_INTERVIEW_KEYS = {"tambov", "caucasian", "offniki"}
+GOSS_INTERVIEW_KEYS = {"government", "army", "police", "sgb", "rescue", "gtrk", "hospital"}
+INTERVIEW_LEVEL_KEYS = OPG_INTERVIEW_KEYS | GOSS_INTERVIEW_KEYS
+
+GOSS_INTERVIEW_QUESTIONS = [
+    {
+        "question": "Запрещено ли занимать государственную волну (/gov) без соблюдения установленного минимального интервала времени?",
+        "answer_type": "goss_text",
+        "expected_answer": "Да, запрещено",
+        "punishment": "Блокировка чата / Выговор лидеру."
+    },
+    {
+        "question": "Разрешено ли писать бред, рекламу, MG или оффтоп в государственную волну?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Блокировка чата 30 минут / Предупреждение."
+    },
+    {
+        "question": "Разрешено ли проводить ночные наборы с нарушением установленного времени в неразрешенные часы?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Выговор лидеру."
+    },
+    {
+        "question": "За сколько минут нужно подать предварительное оповещение в рацию департамента (/d) перед вещанием в госволну?",
+        "answer_type": "goss_text",
+        "expected_answer": "За 10–15 минут",
+        "punishment": "Блокировка чата 20 минут."
+    },
+    {
+        "question": "Разрешено ли проводить собеседование в госволну во время терактов или глобальных мероприятий?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Выговор лидеру."
+    },
+    {
+        "question": "Разрешено ли использовать неподходящие теги или оформление в строках вещания?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Блокировка чата 20 минут."
+    },
+    {
+        "question": "Разрешено ли использовать рацию департамента (/d) не по назначению, в личных целях или для купли-продажи?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Блокировка чата 30 минут."
+    },
+    {
+        "question": "Разрешено ли нарушать правила тегов организаций при общении в департаменте?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Блокировка чата 20 минут."
+    },
+    {
+        "question": "Разрешено ли использовать мат, оскорбления, капс и флуд в рацию департамента?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Блокировка чата 30–60 минут."
+    },
+    {
+        "question": "Разрешено ли перекрикивать коллег или забивать волну лишней информацией при важных перехватах и ситуациях?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Блокировка чата 20 минут."
+    },
+    {
+        "question": "Разрешено ли разжигать конфликты между государственными структурами через рацию департамента?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Блокировка чата 30 минут / Предупреждение."
+    },
+    {
+        "question": "Разрешено ли игнорировать запросы от других государственных организаций при отсутствии веских причин?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Выговор сотруднику."
+    },
+    {
+        "question": "Разрешено ли осуществлять перевод в другую организацию без получения двух официальных разрешений от руководства фракций?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Отказ в переводе / Увольнение."
+    },
+    {
+        "question": "Разрешено ли вводить лидеров или заместителей в заблуждение при подаче заявления на перевод?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Черный список организации."
+    },
+    {
+        "question": "Разрешено ли переводиться сотрудникам младше 5 ранга без учета разрешенных исключений?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Отказ в переводе."
+    },
+    {
+        "question": "Разрешено ли переводиться сотрудникам с имеющимися активными выговорами в личном деле?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Отказ в переводе."
+    },
+    {
+        "question": "Разрешено ли переводиться с целью дальнейшего слива лидера, склада или состава организации?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Черный список организации навсегда."
+    },
+    {
+        "question": "Разрешено ли назойливо выпрашивать или флудить в рацию и соцсети с просьбой проверить заявление на перевод?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Отказ заявления."
+    },
+    {
+        "question": "Разрешено ли игнорировать суточную норму онлайна и минимальное количество проведенных собеседований за день?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Выговор / Снят с поста."
+    },
+    {
+        "question": "Разрешено ли принимать, повышать или увольнять игроков по блату за деньги или по знакомству?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Снят с поста лидера + Варн."
+    },
+    {
+        "question": "Разрешено ли проявлять неадекватное поведение в игре, соцсетях, мессенджерах, на форуме и разжигать конфликты?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Выговор / Строгий выговор / Снят."
+    },
+    {
+        "question": "Разрешено ли переносить форумные разделы или изменять внутреннюю систему повышения без согласования с администрацией?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Выговор лидеру."
+    },
+    {
+        "question": "Сколько времени дается лидеру на рассмотрение жалоб и заявлений на форуме?",
+        "answer_type": "goss_text",
+        "expected_answer": "Лимит 24 часа, какое наказание за игнорирование — Предупреждение / Выговор.",
+        "punishment": ""
+    },
+    {
+        "question": "Разрешено ли удалять доказательства нарушений из отчетов или жалоб до истечения трехдневного срока?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Выговор лидеру."
+    },
+    {
+        "question": "Разрешено ли выдавать ранги сотрудникам без заполненной антиблат-системы?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Выговор лидеру."
+    },
+    {
+        "question": "Разрешено ли конфликтовать с другими лидерами или провоцировать составы других фракций?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Выговор лидеру."
+    },
+    {
+        "question": "Разрешено ли нарушать базовые правила проекта (DM, DB, TK, MG, PG)?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Тюрьма / Варн / Бан по нормативам сервера."
+    },
+    {
+        "question": "Разрешено ли использовать рабочее положение, форму и должностные полномочия в личных целях?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Увольнение / Варн."
+    },
+    {
+        "question": "Разрешено ли находиться на рынке, в казино или на развлекательных мероприятиях в рабочее время в форме?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Тюрьма 30 минут / Увольнение."
+    },
+    {
+        "question": "Разрешено ли носить запрещенные аксессуары, татуировки и элементы одежды не по дресс-коду структуры?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Тюрьма 10 минут / Выговор."
+    },
+    {
+        "question": "Разрешено ли игнорировать приказы старшего состава или вышестоящего руководства при исполнении обязанностей?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Выговор / Увольнение."
+    },
+    {
+        "question": "Разрешен ли намеренный отказ или уход от плановых и внеплановых проверок государственных структур?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Штраф 100 000 игровой валюты / Выговор лидеру."
+    },
+    {
+        "question": "Разрешено ли выходить из игры или уходить в AFK более чем на 5 минут во время проверки структуры?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Штраф 10 000 игровой валюты + возможное увольнение."
+    },
+    {
+        "question": "Разрешено ли приходить на построение для проверки без должного строя или с оружием в руках?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Штраф от 2 000 до 50 000 игровой валюты."
+    },
+    {
+        "question": "Разрешено ли брать взятки без соблюдения строгих процессуальных и РП-условий?",
+        "answer_type": "goss_text",
+        "expected_answer": "Нет, запрещено",
+        "punishment": "Варн / Увольнение."
+    }
+]
 INTERVIEW_QUESTION_COUNT = 20
 LEADER_PUNISHMENT_QUESTION_COUNT = 2
 INTERVIEW_SESSIONS = {}
@@ -310,7 +525,7 @@ def send_fresh_message(chat_id, text, reply_markup=None, old_message_id=None):
     )
 
 
-def build_interview_questions(level=None):
+def build_interview_questions(level=None, organization_key=None):
     questions = []
     for section in INTERVIEW_RULE_SECTIONS:
         for rule in RULES[section]["rules"]:
@@ -372,14 +587,39 @@ def build_interview_questions(level=None):
             "expected_numbers": [5],
         },
     ])
+
+    if organization_key in GOSS_INTERVIEW_KEYS:
+        for entry in GOSS_INTERVIEW_QUESTIONS:
+            escaped_question = html.escape(entry["question"])
+            escaped_answer = html.escape(entry["expected_answer"])
+            escaped_punishment = html.escape(entry["punishment"])
+            questions.append({
+                "question": escaped_question,
+                "punishment": escaped_punishment,
+                "answer_type": entry["answer_type"],
+                "expected_answer": entry["expected_answer"] if entry["answer_type"] == "yes_no" else escaped_answer,
+            })
+            if level == "leader" and entry["punishment"]:
+                questions.append({
+                    "question": f"Какое наказание предусмотрено за: {escaped_question}",
+                    "punishment": escaped_punishment,
+                    "answer_type": "punishment",
+                })
+
     return questions
 
 
-def interview_level_keyboard():
+def interview_level_keyboard(organization_key=None):
     keyboard = types.InlineKeyboardMarkup(row_width=1)
+    if organization_key:
+        deputy_callback = f"interview:level:{organization_key}:deputy"
+        leader_callback = f"interview:level:{organization_key}:leader"
+    else:
+        deputy_callback = "interview:level:deputy"
+        leader_callback = "interview:level:leader"
     keyboard.add(
-        types.InlineKeyboardButton("Обзвон на заместителя", callback_data="interview:level:deputy"),
-        types.InlineKeyboardButton("Обзвон на лидера", callback_data="interview:level:leader"),
+        types.InlineKeyboardButton("Обзвон на заместителя", callback_data=deputy_callback),
+        types.InlineKeyboardButton("Обзвон на лидера", callback_data=leader_callback),
         types.InlineKeyboardButton("⬅️ Назад", callback_data="menu:interview"),
     )
     return keyboard
@@ -399,17 +639,22 @@ def interview_answer_keyboard(session_id, index):
     return keyboard
 
 
-def interview_result_keyboard(level):
+def interview_result_keyboard(level, organization_key=None):
     keyboard = types.InlineKeyboardMarkup(row_width=1)
+    retry_callback = (
+        f"interview:level:{organization_key}:{level}"
+        if organization_key
+        else f"interview:level:{level}"
+    )
     keyboard.add(
-        types.InlineKeyboardButton("🔄 Пройти заново", callback_data=f"interview:level:{level}"),
+        types.InlineKeyboardButton("🔄 Пройти заново", callback_data=retry_callback),
         types.InlineKeyboardButton("⬅️ К выбору организации", callback_data="menu:interview"),
     )
     return keyboard
 
 
-def start_interview_session(chat_id, level):
-    question_pool = build_interview_questions(level)
+def start_interview_session(chat_id, level, organization_key=None):
+    question_pool = build_interview_questions(level, organization_key)
     amount = min(INTERVIEW_QUESTION_COUNT, len(question_pool))
 
     # В каждом обзвоне остаются фактические вопросы, а для лидера
@@ -417,7 +662,7 @@ def start_interview_session(chat_id, level):
     fact_types = {"cap_schedule", "time_range", "number_sequence", "time_list"}
     fact_questions = [item for item in question_pool if item["answer_type"] in fact_types]
     punishment_questions = [item for item in question_pool if item["answer_type"] == "punishment"]
-    rule_questions = [item for item in question_pool if item["answer_type"] == "yes_no"]
+    rule_questions = [item for item in question_pool if item["answer_type"] in {"yes_no", "goss_text"}]
 
     fact_amount = min(3, len(fact_questions), amount)
     punishment_amount = min(
@@ -453,6 +698,7 @@ def start_interview_session(chat_id, level):
     session = {
         "id": uuid.uuid4().hex[:8],
         "level": level,
+        "organization": organization_key,
         "questions": selected_questions,
         "current": 0,
         "score": 0,
@@ -471,6 +717,8 @@ def interview_question_text(session):
     level_title = "заместителя" if session["level"] == "deputy" else "лидера"
     if item["answer_type"] == "punishment":
         instruction = "<i>Напишите название наказания сообщением.</i>"
+    elif item["answer_type"] == "goss_text":
+        instruction = "<i>Напишите ответ сообщением.</i>"
     else:
         instruction = (
             "<i>Напишите ответ сообщением. Например: «да», «нет», «можно», "
@@ -570,6 +818,8 @@ def is_interview_answer_correct(item, raw_answer):
     if item["answer_type"] in {"no", "yes_no"}:
         expected_answer = item.get("expected_answer", "no")
         return classify_interview_answer(raw_answer) == expected_answer
+    if item["answer_type"] == "goss_text":
+        return goss_answer_is_correct(item, raw_answer)
     if item["answer_type"] == "punishment":
         return punishment_answer_is_correct(item["punishment"], raw_answer)
     if item["answer_type"] in {"number_sequence", "cap_schedule"}:
@@ -582,8 +832,8 @@ def is_interview_answer_correct(item, raw_answer):
 def expected_interview_answer_text(item):
     if item["answer_type"] in {"no", "yes_no"}:
         return "Да" if item.get("expected_answer", "no") == "yes" else "Нет"
-    if item["answer_type"] == "punishment":
-        return item["punishment"]
+    if item["answer_type"] in {"goss_text", "punishment"}:
+        return item["expected_answer"] if item["answer_type"] == "goss_text" else item["punishment"]
     if item["answer_type"] == "cap_schedule":
         return "Будние: 13, 15, 17, 19, 21; выходные: 11, 13, 15, 17, 19, 21"
     if item["answer_type"] == "time_range":
@@ -624,6 +874,23 @@ def punishment_answer_is_correct(expected, answer):
     expected_categories = punishment_categories(expected)
     answer_categories = punishment_categories(answer)
     return bool(expected_categories & answer_categories)
+
+
+def goss_answer_is_correct(item, raw_answer):
+    expected = item["expected_answer"]
+    if item["answer_type"] == "yes_no":
+        return classify_interview_answer(raw_answer) == expected
+
+    answer = normalize_interview_answer(raw_answer)
+    expected_normalized = normalize_interview_answer(expected)
+    if not answer:
+        return False
+    if answer == expected_normalized or expected_normalized in answer:
+        return True
+
+    expected_digits = re.sub(r"\D", "", expected)
+    answer_digits = re.sub(r"\D", "", raw_answer or "")
+    return bool(expected_digits and expected_digits == answer_digits)
 
 
 def interview_verdict(errors):
@@ -680,7 +947,11 @@ def send_interview_result(chat_id, session):
     parts = format_interview_result_parts(session)
     safe_delete_message(chat_id, session.get("last_message_id"))
     for index, part in enumerate(parts):
-        markup = interview_result_keyboard(session["level"]) if index == len(parts) - 1 else None
+        markup = (
+            interview_result_keyboard(session["level"], session.get("organization"))
+            if index == len(parts) - 1
+            else None
+        )
         sent = bot.send_message(chat_id, part, reply_markup=markup, parse_mode="HTML")
         session["last_message_id"] = sent.message_id
 
@@ -890,7 +1161,11 @@ def handle_text_answer(message):
             return
 
         INTERVIEW_CONFIRMATIONS.pop(chat_id, None)
-        session = start_interview_session(chat_id, pending["level"])
+        session = start_interview_session(
+            chat_id,
+            pending["level"],
+            pending.get("organization"),
+        )
         session["last_message_id"] = pending.get("message_id")
         if len(session["questions"]) < INTERVIEW_QUESTION_COUNT:
             send_fresh_message(
@@ -964,11 +1239,22 @@ def handle_callback(call):
             )
             return
 
-        if len(action) == 3 and action[0] == "interview" and action[1] == "level":
-            if action[2] in {"deputy", "leader"}:
+        if (
+            len(action) == 4
+            and action[0] == "interview"
+            and action[1] == "level"
+        ) or (
+            len(action) == 3
+            and action[0] == "interview"
+            and action[1] == "level"
+        ):
+            organization_key = action[2] if len(action) == 4 else None
+            level = action[3] if len(action) == 4 else action[2]
+            if level in {"deputy", "leader"}:
                 INTERVIEW_SESSIONS.pop(call.message.chat.id, None)
                 INTERVIEW_CONFIRMATIONS[call.message.chat.id] = {
-                    "level": action[2],
+                    "level": level,
+                    "organization": organization_key,
                     "message_id": call.message.message_id,
                 }
                 bot.edit_message_text(
@@ -1005,12 +1291,12 @@ def handle_callback(call):
                 "offniki": "ОПГ Оффники",
             }
             organization = organization_names.get(action[1])
-            if organization and action[1] in OPG_INTERVIEW_KEYS:
+            if organization and action[1] in INTERVIEW_LEVEL_KEYS:
                 bot.edit_message_text(
                     f"<b>{organization}</b>\n\nВыберите сложность обзвона:",
                     call.message.chat.id,
                     call.message.message_id,
-                    reply_markup=interview_level_keyboard(),
+                    reply_markup=interview_level_keyboard(action[1]),
                     parse_mode="HTML",
                 )
             elif organization:
