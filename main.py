@@ -285,6 +285,7 @@ INTERVIEW_RULE_SECTIONS = ("war", "kidnap", "base", "cash", "trucks", "airdrop")
 OPG_INTERVIEW_KEYS = {"tambov", "caucasian", "offniki"}
 INTERVIEW_QUESTION_COUNT = 20
 INTERVIEW_SESSIONS = {}
+INTERVIEW_CONFIRMATIONS = {}
 
 
 def build_interview_questions(level=None):
@@ -348,6 +349,14 @@ def interview_level_keyboard():
         types.InlineKeyboardButton("Обзвон на заместителя", callback_data="interview:level:deputy"),
         types.InlineKeyboardButton("Обзвон на лидера", callback_data="interview:level:leader"),
         types.InlineKeyboardButton("⬅️ Назад", callback_data="menu:interview"),
+    )
+    return keyboard
+
+
+def interview_confirmation_keyboard():
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        types.InlineKeyboardButton("⬅️ К выбору организации", callback_data="menu:interview"),
     )
     return keyboard
 
@@ -765,10 +774,31 @@ def handle_start(message):
 
 @bot.message_handler(func=lambda message: True)
 def handle_text_answer(message):
-    session = INTERVIEW_SESSIONS.get(message.chat.id)
-    if not session or not message.text or message.text.startswith("/"):
+    if not message.text or message.text.startswith("/"):
         return
-    process_interview_answer(message.chat.id, session, message.text)
+
+    chat_id = message.chat.id
+    pending = INTERVIEW_CONFIRMATIONS.get(chat_id)
+    if pending:
+        if normalize_interview_answer(message.text) != "готов":
+            bot.send_message(
+                chat_id,
+                "Для начала обзвона напишите слово «Готов».",
+            )
+            return
+
+        INTERVIEW_CONFIRMATIONS.pop(chat_id, None)
+        session = start_interview_session(chat_id, pending["level"])
+        if len(session["questions"]) < INTERVIEW_QUESTION_COUNT:
+            bot.send_message(chat_id, "Недостаточно правил для полного обзвона.")
+        else:
+            send_interview_question(chat_id, session)
+        return
+
+    session = INTERVIEW_SESSIONS.get(chat_id)
+    if not session:
+        return
+    process_interview_answer(chat_id, session, message.text)
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -780,11 +810,13 @@ def handle_callback(call):
             bot.answer_callback_query(call.id)
 
         if call.data == "menu:home":
+            INTERVIEW_CONFIRMATIONS.pop(call.message.chat.id, None)
             bot.delete_message(call.message.chat.id, call.message.message_id)
             show_home(call.message.chat.id)
             return
 
         if call.data == "menu:interview":
+            INTERVIEW_CONFIRMATIONS.pop(call.message.chat.id, None)
             interview_text = "<b>Текстовый обзвон</b>\n\nВыберите организацию:"
             if getattr(call.message, "content_type", "") == "photo":
                 bot.delete_message(call.message.chat.id, call.message.message_id)
@@ -810,6 +842,7 @@ def handle_callback(call):
             return
 
         if call.data == "interview:cancel":
+            INTERVIEW_CONFIRMATIONS.pop(call.message.chat.id, None)
             INTERVIEW_SESSIONS.pop(call.message.chat.id, None)
             bot.edit_message_text(
                 "<b>Обзвон завершён досрочно.</b>",
@@ -822,16 +855,19 @@ def handle_callback(call):
 
         if len(action) == 3 and action[0] == "interview" and action[1] == "level":
             if action[2] in {"deputy", "leader"}:
-                session = start_interview_session(call.message.chat.id, action[2])
-                if len(session["questions"]) < INTERVIEW_QUESTION_COUNT:
-                    bot.edit_message_text(
-                        "Недостаточно правил для полного обзвона.",
-                        call.message.chat.id,
-                        call.message.message_id,
-                        reply_markup=interview_level_keyboard(),
-                    )
-                else:
-                    show_interview_question(call, session)
+                INTERVIEW_SESSIONS.pop(call.message.chat.id, None)
+                INTERVIEW_CONFIRMATIONS[call.message.chat.id] = {
+                    "level": action[2],
+                    "message_id": call.message.message_id,
+                }
+                bot.edit_message_text(
+                    "<b>Вы уверены?</b>\n\n"
+                    "Для прохождения обзвона напишите слово «Готов».",
+                    call.message.chat.id,
+                    call.message.message_id,
+                    reply_markup=interview_confirmation_keyboard(),
+                    parse_mode="HTML",
+                )
             return
 
         if len(action) == 3 and action[0] == "interview" and action[1] == "levelback":
