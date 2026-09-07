@@ -405,7 +405,7 @@ def classify_interview_answer(text):
     positive = (
         normalized in {"да", "конечно", "разрешено", "можно", "естественно", "разрешается", "допустимо"}
         or "разреш" in normalized
-        or "можн" in normalized
+        or re.search(r"\bможно\b", normalized)
         or "конечно" in normalized
         or "естественно" in normalized
     )
