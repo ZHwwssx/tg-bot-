@@ -527,6 +527,35 @@ def send_fresh_message(chat_id, text, reply_markup=None, old_message_id=None):
 
 def build_interview_questions(level=None, organization_key=None):
     questions = []
+
+    if organization_key in GOSS_INTERVIEW_KEYS:
+        for entry in GOSS_INTERVIEW_QUESTIONS:
+            escaped_question = html.escape(entry["question"])
+            escaped_answer = html.escape(entry["expected_answer"])
+            escaped_punishment = html.escape(entry["punishment"])
+            is_yes_no = entry["answer_type"] == "yes_no"
+            statement = re.sub(
+                r"^(?:Запрещено|Разрешено|Разрешен)\s+ли\s+",
+                "",
+                escaped_question,
+                flags=re.IGNORECASE,
+            ).rstrip("?")
+            questions.append({
+                "question": "" if is_yes_no else escaped_question,
+                "statement": statement if is_yes_no else "",
+                "punishment": escaped_punishment,
+                "answer_type": entry["answer_type"],
+                "expected_answer": entry["expected_answer"] if is_yes_no else escaped_answer,
+            })
+            if level == "leader" and entry["punishment"]:
+                questions.append({
+                    "question": f"Какое наказание предусмотрено за: {escaped_question}",
+                    "punishment": escaped_punishment,
+                    "answer_type": "punishment",
+                })
+        return questions
+
+    # Вопросы ниже относятся к гетто/ОПГ и не попадают в госс-обзвон.
     for section in INTERVIEW_RULE_SECTIONS:
         for rule in RULES[section]["rules"]:
             if " | " not in rule:
@@ -587,33 +616,6 @@ def build_interview_questions(level=None, organization_key=None):
             "expected_numbers": [5],
         },
     ])
-
-    if organization_key in GOSS_INTERVIEW_KEYS:
-        for entry in GOSS_INTERVIEW_QUESTIONS:
-            escaped_question = html.escape(entry["question"])
-            escaped_answer = html.escape(entry["expected_answer"])
-            escaped_punishment = html.escape(entry["punishment"])
-            is_yes_no = entry["answer_type"] == "yes_no"
-            statement = re.sub(
-                r"^(?:Запрещено|Разрешено|Разрешен)\s+ли\s+",
-                "",
-                escaped_question,
-                flags=re.IGNORECASE,
-            ).rstrip("?")
-            questions.append({
-                "question": "" if is_yes_no else escaped_question,
-                "statement": statement if is_yes_no else "",
-                "punishment": escaped_punishment,
-                "answer_type": entry["answer_type"],
-                "expected_answer": entry["expected_answer"] if is_yes_no else escaped_answer,
-            })
-            if level == "leader" and entry["punishment"]:
-                questions.append({
-                    "question": f"Какое наказание предусмотрено за: {escaped_question}",
-                    "punishment": escaped_punishment,
-                    "answer_type": "punishment",
-                })
-
     return questions
 
 
