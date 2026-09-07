@@ -907,12 +907,19 @@ def handle_callback(call):
             pass
 
 
+def configure_bot_commands():
+    bot.set_my_commands([
+        types.BotCommand("start", "Запустить бота"),
+    ])
+
+
 def run_web_server():
     port = int(os.environ.get("PORT", "8080"))
     app.run(host="0.0.0.0", port=port)
 
 
 if __name__ == "__main__":
+    configure_bot_commands()
     external_url = os.environ.get("RENDER_EXTERNAL_URL")
     if external_url:
         # На Render используем webhook: он исключает конфликт двух polling-процессов.
