@@ -406,7 +406,7 @@ def interview_question_text(session):
         "«нельзя», «разрешено», «запрещено».</i>"
     )
     if session["level"] == "leader" and item["punishment"]:
-        text += "\n\n<i>После правильного ответа бот попросит назвать наказание.</i>"
+        text += "\n\n<i>После ответа бот попросит назвать наказание.</i>"
     return text
 
 
@@ -588,23 +588,13 @@ def process_interview_answer(chat_id, session, raw_answer, callback_id=None, cal
     else:
         feedback = f"Неверно. Правильный ответ: {expected_interview_answer_text(item)}."
 
-    if session["level"] == "leader" and item["punishment"] and is_correct:
-        session["awaiting_punishment"] = item
-        if callback_id:
-            bot.answer_callback_query(
-                callback_id,
-                "Верно! Напишите наказание отдельным сообщением.",
-                show_alert=True,
-            )
-        bot.send_message(
-            chat_id,
-            "<b>Верно!</b>\n\nКакое наказание предусмотрено?",
-            parse_mode="HTML",
-        )
-        return
-
     if session["level"] == "leader" and item["punishment"]:
-        feedback += f" Наказание: {item['punishment']}"
+        session["awaiting_punishment"] = item
+        prompt = f"{feedback}\n\nКакое наказание предусмотрено?"
+        if callback_id:
+            bot.answer_callback_query(callback_id, feedback[:190], show_alert=True)
+        bot.send_message(chat_id, prompt, parse_mode="HTML")
+        return
 
     if callback_id:
         bot.answer_callback_query(callback_id, feedback[:190], show_alert=True)
