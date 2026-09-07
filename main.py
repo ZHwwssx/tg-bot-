@@ -34,6 +34,36 @@ WELCOME_CAPTION = (
 
 
 RULES = {
+    "rp_terms": {
+        "title": "РП термины",
+        "rules": [
+            "ДМ (Deathmatch) — Убийство без причины.",
+            "ДБ (DriveBy) — Убийство с машины (или машиной).",
+            "СК (Spawn Kill) — Убийство при появлении персонажа.",
+            "ТК (TeamKill) — Убийство своих союзников.",
+            "РП (RolePlay) — Игра по ролям, где каждый игрок должен соблюдать свою роль.",
+            "МГ (MetaGaming) — Использование информации, полученной вне игры (из реального мира), в игровом процессе (например, из чатов ООС*).",
+            "ГМ (GodMode) — становление персонажа неуязвимым.",
+            "ПГ (PowerGaming) — Изображение себя как героя, например, когда у тебя нет оружия, но ты идешь на вооруженного противника, или когда пять человек нападают на одного.",
+            "РК (RevengeKill) — Возвращение на место, где тебя убили; убийство с целью мести; неоднократное убийство одного и того же игрока.",
+            "БХ (BunnyHop) — Нон-РП бег с прыжками, который используется для ускорения передвижения.",
+            "УК (Уголовный Кодекс) — Кодекс законов, регулирующий действия в игре.",
+            "АК (Академический Кодекс) — Кодекс, регулирующий образовательный процесс или поведение в образовательных учреждениях (или аналог).",
+            "ЗЗ (Зеленая Зона) — Общественные места, где запрещено совершать агрессивные действия, например, площади у мэрии, вокзалы, больницы.",
+            "ФР (FastReloading) — Баг с быстрой перезарядкой.",
+            "ФМ (FastMoving) — Баг с быстрым перемещением.",
+            "СХ (SH) — Спидхак, чит на быстрое перемещение (SpeedHack).",
+            "ФФ (FriendlyFire) — Стрельба по своим союзникам, обычно без намерения убить, а с целью причинить минимальный урон.",
+            "ЦК (CharacterKill) — Убийство персонажа по РП, запрещено на сервере.",
+            "УРП (UnRolePlay) — Уход от РП, действия, которые не соответствуют роли персонажа.",
+            "ТДМ (Team DeathMatch) — Массированное убийство на основе команд.",
+            "МДМ (Mass DeathMatch) — Массовое убийство без причины.",
+            "ОРП (OffRolePlay) — Уход от РП.",
+            "ЕПП (Exploiting Pathing) — Езда по полям или на участках, где это запрещено.",
+            "ПК (PlayerKill) — Убийство другого игрока, соответствующее РП.",
+            "ФЦК (FractionCharacterKill) — Убийство персонажа по фракционным мотивам.",
+        ],
+    },
     "war": {
         "title": "Война за территорию",
         "rules": [
@@ -227,6 +257,7 @@ def rules_keyboard():
 def goss_keyboard():
     keyboard = types.InlineKeyboardMarkup(row_width=1)
     keyboard.add(
+        types.InlineKeyboardButton("РП термины", callback_data="section:rp_terms:0"),
         types.InlineKeyboardButton("Правила государственной волны и ночных наборов", callback_data="section:gov_wave:0"),
         types.InlineKeyboardButton("Правила пользования департаментом (/d)", callback_data="section:department:0"),
         types.InlineKeyboardButton("Система переводов государственных организаций", callback_data="section:transfers:0"),
@@ -240,6 +271,7 @@ def goss_keyboard():
 def ghetto_keyboard():
     keyboard = types.InlineKeyboardMarkup(row_width=1)
     keyboard.add(
+        types.InlineKeyboardButton("РП термины", callback_data="section:rp_terms:0"),
         types.InlineKeyboardButton("Война за территорию", callback_data="section:war:0"),
         types.InlineKeyboardButton("Похищение", callback_data="section:kidnap:0"),
         types.InlineKeyboardButton("ВЧ", callback_data="section:base:0"),
