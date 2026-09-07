@@ -370,7 +370,18 @@ def interview_result_keyboard(level):
 def start_interview_session(chat_id, level):
     question_pool = build_interview_questions(level)
     amount = min(INTERVIEW_QUESTION_COUNT, len(question_pool))
-    selected_questions = random.sample(question_pool, amount)
+
+    # Не перегружаем один обзвон фактическими вопросами: они появляются
+    # случайно и вперемешку с вопросами по правилам.
+    fact_questions = [item for item in question_pool if item["answer_type"] != "no"]
+    rule_questions = [item for item in question_pool if item["answer_type"] == "no"]
+    fact_amount = min(3, len(fact_questions), amount)
+    selected_questions = random.sample(fact_questions, fact_amount)
+    selected_questions.extend(
+        random.sample(rule_questions, min(amount - fact_amount, len(rule_questions)))
+    )
+    random.shuffle(selected_questions)
+
     session = {
         "id": uuid.uuid4().hex[:8],
         "level": level,
