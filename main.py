@@ -1,7 +1,9 @@
 import html
 import logging
 import os
+import random
 import re
+import uuid
 import threading
 import time
 
@@ -281,9 +283,11 @@ def start_keyboard():
 
 INTERVIEW_RULE_SECTIONS = ("war", "kidnap", "base", "cash", "trucks", "airdrop")
 OPG_INTERVIEW_KEYS = {"tambov", "caucasian", "offniki"}
+INTERVIEW_QUESTION_COUNT = 20
+INTERVIEW_SESSIONS = {}
 
 
-def build_interview_questions(level):
+def build_interview_questions(level=None):
     questions = []
     for section in INTERVIEW_RULE_SECTIONS:
         for rule in RULES[section]["rules"]:
@@ -291,17 +295,10 @@ def build_interview_questions(level):
                 continue
             statement, punishment = rule.split(" | ", 1)
             statement = re.sub(r"^Запрещ(?:ено|ен|ена|ён|ены)\s+", "", statement)
-            statement = html.escape(statement)
-            punishment = html.escape(punishment)
-            question = f"Разрешено ли {statement}?"
-            if level == "deputy":
-                text = f"<b>Вопрос для обзвона на заместителя</b>\n\n{question}\n\n<b>Ответ:</b> Нет."
-            else:
-                text = (
-                    f"<b>Вопрос для обзвона на лидера</b>\n\n{question}\n\n"
-                    f"<b>Ответ:</b> Нет.\n<b>Какое наказание?</b> — {punishment}."
-                )
-            questions.append(text)
+            questions.append({
+                "question": f"Разрешено ли {html.escape(statement)}?",
+                "punishment": html.escape(punishment),
+            })
     return questions
 
 
@@ -315,38 +312,98 @@ def interview_level_keyboard():
     return keyboard
 
 
-def interview_question_keyboard(level, index, total):
+def interview_answer_keyboard(session_id, index):
     keyboard = types.InlineKeyboardMarkup(row_width=2)
-    navigation = []
-    if index > 0:
-        navigation.append(types.InlineKeyboardButton("◀️ Предыдущий", callback_data=f"interview:q:{level}:{index - 1}"))
-    if index < total - 1:
-        navigation.append(types.InlineKeyboardButton("Следующий ▶️", callback_data=f"interview:q:{level}:{index + 1}"))
-    if navigation:
-        keyboard.row(*navigation)
-    keyboard.add(types.InlineKeyboardButton("⬅️ К выбору типа", callback_data=f"interview:levelback:{level}"))
+    keyboard.row(
+        types.InlineKeyboardButton("Да", callback_data=f"interview:answer:{session_id}:{index}:yes"),
+        types.InlineKeyboardButton("Нет", callback_data=f"interview:answer:{session_id}:{index}:no"),
+    )
+    keyboard.add(types.InlineKeyboardButton("❌ Завершить обзвон", callback_data="interview:cancel"))
     return keyboard
 
 
-def show_interview_question(call, level, index):
-    questions = build_interview_questions(level)
-    if not questions:
-        bot.edit_message_text(
-            "Вопросы для этого типа обзвона пока не добавлены.",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=interview_level_keyboard(),
-        )
-        return
-    index = max(0, min(index, len(questions) - 1))
-    text = f"{questions[index]}\n\n<i>Вопрос {index + 1} из {len(questions)}</i>"
+def interview_result_keyboard(level):
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        types.InlineKeyboardButton("🔄 Пройти заново", callback_data=f"interview:level:{level}"),
+        types.InlineKeyboardButton("⬅️ К выбору организации", callback_data="menu:interview"),
+    )
+    return keyboard
+
+
+def start_interview_session(chat_id, level):
+    question_pool = build_interview_questions(level)
+    amount = min(INTERVIEW_QUESTION_COUNT, len(question_pool))
+    selected_questions = random.sample(question_pool, amount)
+    session = {
+        "id": uuid.uuid4().hex[:8],
+        "level": level,
+        "questions": selected_questions,
+        "current": 0,
+        "score": 0,
+    }
+    INTERVIEW_SESSIONS[chat_id] = session
+    return session
+
+
+def show_interview_question(call, session, prefix=None):
+    questions = session["questions"]
+    index = session["current"]
+    item = questions[index]
+    level_title = "заместителя" if session["level"] == "deputy" else "лидера"
+    text = (
+        f"<b>Обзвон на {level_title}</b>\n\n"
+        f"{item['question']}\n\n"
+        f"<i>Вопрос {index + 1} из {len(questions)}</i>"
+    )
+    if session["level"] == "leader":
+        text += "\n\n<i>После ответа бот покажет наказание.</i>"
+    if prefix:
+        text = f"{prefix}\n\n{text}"
     bot.edit_message_text(
         text,
         call.message.chat.id,
         call.message.message_id,
-        reply_markup=interview_question_keyboard(level, index, len(questions)),
+        reply_markup=interview_answer_keyboard(session["id"], index),
         parse_mode="HTML",
     )
+
+
+def handle_interview_answer(call, session_id, index, answer):
+    session = INTERVIEW_SESSIONS.get(call.message.chat.id)
+    if not session or session["id"] != session_id:
+        bot.answer_callback_query(call.id, "Этот обзвон уже завершён. Начните новый.", show_alert=True)
+        return
+    if index != session["current"] or index >= len(session["questions"]):
+        bot.answer_callback_query(call.id, "Этот вопрос уже неактивен.", show_alert=True)
+        return
+
+    item = session["questions"][index]
+    is_correct = answer == "no"
+    if is_correct:
+        session["score"] += 1
+        feedback = "Верно!"
+    else:
+        feedback = "Неверно. Правильный ответ: Нет."
+    if session["level"] == "leader":
+        feedback += f" Наказание: {item['punishment']}"
+    bot.answer_callback_query(call.id, feedback[:190], show_alert=True)
+
+    session["current"] += 1
+    if session["current"] >= len(session["questions"]):
+        total = len(session["questions"])
+        score = session["score"]
+        bot.edit_message_text(
+            f"<b>Обзвон завершён</b>\n\n"
+            f"Ваш результат: <b>{score} из {total}</b>.\n"
+            f"Ошибок: <b>{total - score}</b>.",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=interview_result_keyboard(session["level"]),
+            parse_mode="HTML",
+        )
+        return
+    show_interview_question(call, session)
 
 
 def interview_keyboard():
@@ -473,8 +530,10 @@ def handle_start(message):
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
     try:
-        bot.answer_callback_query(call.id)
         action = call.data.split(":")
+        is_answer = len(action) == 5 and action[0] == "interview" and action[1] == "answer"
+        if not is_answer:
+            bot.answer_callback_query(call.id)
 
         if call.data == "menu:home":
             bot.delete_message(call.message.chat.id, call.message.message_id)
@@ -501,14 +560,34 @@ def handle_callback(call):
                 )
             return
 
-        if len(action) == 3 and action[0] == "interview" and action[1] == "level":
-            if action[2] in {"deputy", "leader"}:
-                show_interview_question(call, action[2], 0)
+        if len(action) == 5 and action[0] == "interview" and action[1] == "answer":
+            if action[4] in {"yes", "no"}:
+                handle_interview_answer(call, action[2], int(action[3]), action[4])
             return
 
-        if len(action) == 4 and action[0] == "interview" and action[1] == "q":
+        if call.data == "interview:cancel":
+            INTERVIEW_SESSIONS.pop(call.message.chat.id, None)
+            bot.edit_message_text(
+                "<b>Обзвон завершён досрочно.</b>",
+                call.message.chat.id,
+                call.message.message_id,
+                reply_markup=interview_result_keyboard("deputy"),
+                parse_mode="HTML",
+            )
+            return
+
+        if len(action) == 3 and action[0] == "interview" and action[1] == "level":
             if action[2] in {"deputy", "leader"}:
-                show_interview_question(call, action[2], int(action[3]))
+                session = start_interview_session(call.message.chat.id, action[2])
+                if len(session["questions"]) < INTERVIEW_QUESTION_COUNT:
+                    bot.edit_message_text(
+                        "Недостаточно правил для полного обзвона.",
+                        call.message.chat.id,
+                        call.message.message_id,
+                        reply_markup=interview_level_keyboard(),
+                    )
+                else:
+                    show_interview_question(call, session)
             return
 
         if len(action) == 3 and action[0] == "interview" and action[1] == "levelback":
