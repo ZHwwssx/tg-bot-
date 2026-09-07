@@ -721,7 +721,7 @@ def handle_interview_answer(call, session_id, index, answer):
         call=call,
     )
 def interview_keyboard():
-    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
     keyboard.add(
         types.InlineKeyboardButton("Правительство", callback_data="interview:government"),
         types.InlineKeyboardButton("Армия", callback_data="interview:army"),
