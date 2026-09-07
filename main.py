@@ -300,6 +300,45 @@ def build_interview_questions(level=None):
                 "punishment": html.escape(punishment),
                 "answer_type": "no",
             })
+
+    questions.extend([
+        {
+            "question": "В какое время проводятся капты в будние и выходные дни?",
+            "punishment": "",
+            "answer_type": "cap_schedule",
+            "expected_numbers": [13, 15, 17, 19, 21, 11, 13, 15, 17, 19, 21],
+        },
+        {
+            "question": "В какое время разрешено нападать на военную часть?",
+            "punishment": "",
+            "answer_type": "time_range",
+            "expected_times": ["08:00", "22:00"],
+        },
+        {
+            "question": "Сколько каптов проводится в будние и выходные дни?",
+            "punishment": "",
+            "answer_type": "number_sequence",
+            "expected_numbers": [5, 6],
+        },
+        {
+            "question": "В какое время падает AirDrop?",
+            "punishment": "",
+            "answer_type": "time_list",
+            "expected_times": ["14:40", "19:40"],
+        },
+        {
+            "question": "Сколько локаций AirDrop?",
+            "punishment": "",
+            "answer_type": "number_sequence",
+            "expected_numbers": [10],
+        },
+        {
+            "question": "Сколько минимальных нападающих нужно для нападения на военную часть?",
+            "punishment": "",
+            "answer_type": "number_sequence",
+            "expected_numbers": [5],
+        },
+    ])
     return questions
 
 
@@ -384,7 +423,28 @@ def send_interview_question(chat_id, session):
 
 def normalize_interview_answer(text):
     text = (text or "").lower().replace("ё", "е")
-    return re.sub(r"[^а-яa-z0-9]+", " ", text).strip()
+    return re.sub(r"[^а-яa-z0-9:]+", " ", text).strip()
+
+
+def extract_answer_numbers(text):
+    normalized = normalize_interview_answer(text)
+    number_words = {
+        "ноль": "0", "один": "1", "два": "2", "три": "3", "четыре": "4",
+        "пять": "5", "шесть": "6", "семь": "7", "восемь": "8", "девять": "9",
+        "десять": "10",
+    }
+    for word, number in number_words.items():
+        normalized = re.sub(rf"\b{word}\b", number, normalized)
+    return [int(value) for value in re.findall(r"\b\d+\b", normalized)]
+
+
+def extract_answer_times(text):
+    normalized = (text or "").lower().replace("ё", "е")
+    raw_times = re.findall(r"(?<!\d)(\d{1,2})(?::(\d{2}))?(?!\d)", normalized)
+    times = []
+    for hours, minutes in raw_times:
+        times.append(f"{int(hours):02d}:{int(minutes or 0):02d}")
+    return times
 
 
 def classify_interview_answer(text):
@@ -414,19 +474,31 @@ def classify_interview_answer(text):
     return None
 
 
+def is_interview_answer_correct(item, raw_answer):
+    if item["answer_type"] == "no":
+        return classify_interview_answer(raw_answer) == "no"
+    if item["answer_type"] in {"number_sequence", "cap_schedule"}:
+        return extract_answer_numbers(raw_answer) == item["expected_numbers"]
+    if item["answer_type"] in {"time_list", "time_range"}:
+        return extract_answer_times(raw_answer) == item["expected_times"]
+    return False
+
+
 def process_interview_answer(chat_id, session, raw_answer, callback_id=None, call=None):
     index = session["current"]
     item = session["questions"][index]
-    answer = classify_interview_answer(raw_answer)
-    if answer is None:
-        message = "Не понял ответ. Напишите, например: «да», «нет», «можно» или «нельзя»."
-        if callback_id:
-            bot.answer_callback_query(callback_id, message[:190], show_alert=True)
-        else:
-            bot.send_message(chat_id, message)
-        return
-
-    is_correct = answer == "no"
+    if item["answer_type"] == "no":
+        answer = classify_interview_answer(raw_answer)
+        if answer is None:
+            message = "Не понял ответ. Напишите, например: «да», «нет», «можно» или «нельзя»."
+            if callback_id:
+                bot.answer_callback_query(callback_id, message[:190], show_alert=True)
+            else:
+                bot.send_message(chat_id, message)
+            return
+        is_correct = answer == "no"
+    else:
+        is_correct = is_interview_answer_correct(item, raw_answer)
     if is_correct:
         session["score"] += 1
         feedback = "Верно!"
