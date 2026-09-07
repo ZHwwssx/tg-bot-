@@ -1059,7 +1059,7 @@ def rules_keyboard():
 
 
 def goss_keyboard():
-    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
     keyboard.add(
         types.InlineKeyboardButton("РП термины", callback_data="section:rp_terms:0"),
         types.InlineKeyboardButton("Правила государственной волны и ночных наборов", callback_data="section:gov_wave:0"),
@@ -1073,7 +1073,7 @@ def goss_keyboard():
 
 
 def ghetto_keyboard():
-    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
     keyboard.add(
         types.InlineKeyboardButton("РП термины", callback_data="section:rp_terms:0"),
         types.InlineKeyboardButton("Основное", callback_data="section:basic:0"),
