@@ -593,11 +593,19 @@ def build_interview_questions(level=None, organization_key=None):
             escaped_question = html.escape(entry["question"])
             escaped_answer = html.escape(entry["expected_answer"])
             escaped_punishment = html.escape(entry["punishment"])
+            is_yes_no = entry["answer_type"] == "yes_no"
+            statement = re.sub(
+                r"^(?:Запрещено|Разрешено|Разрешен)\s+ли\s+",
+                "",
+                escaped_question,
+                flags=re.IGNORECASE,
+            ).rstrip("?")
             questions.append({
-                "question": escaped_question,
+                "question": "" if is_yes_no else escaped_question,
+                "statement": statement if is_yes_no else "",
                 "punishment": escaped_punishment,
                 "answer_type": entry["answer_type"],
-                "expected_answer": entry["expected_answer"] if entry["answer_type"] == "yes_no" else escaped_answer,
+                "expected_answer": entry["expected_answer"] if is_yes_no else escaped_answer,
             })
             if level == "leader" and entry["punishment"]:
                 questions.append({
@@ -684,7 +692,7 @@ def start_interview_session(chat_id, level, organization_key=None):
     prohibited_first = random.choice([True, False])
     rule_index = 0
     for question in selected_questions:
-        if question["answer_type"] != "yes_no":
+        if question["answer_type"] != "yes_no" or "statement" not in question:
             continue
         prohibited_question = (rule_index % 2 == 0) == prohibited_first
         if prohibited_question:
