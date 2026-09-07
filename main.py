@@ -507,12 +507,35 @@ def expected_interview_answer_text(item):
     return "Нет"
 
 
+PUNISHMENT_ALIASES = {
+    "prison": ("тюрьм", "деморган", "кпз", "нар", "изолятор", "карцер"),
+    "warn": ("варн", "предупрежден"),
+    "ban": ("бан", "блокировк", "перманент"),
+    "mute": ("мут", "блокировка чата", "чат блок"),
+    "kick": ("кик", "выгн", "исключен"),
+}
+
+
+def punishment_categories(text):
+    normalized = normalize_interview_answer(html.unescape(text))
+    categories = set()
+    for category, aliases in PUNISHMENT_ALIASES.items():
+        if any(alias in normalized for alias in aliases):
+            categories.add(category)
+    return categories
+
+
 def punishment_answer_is_correct(expected, answer):
     expected_text = normalize_interview_answer(html.unescape(expected))
     answer_text = normalize_interview_answer(answer)
-    return bool(answer_text) and (
-        answer_text == expected_text or expected_text in answer_text
-    )
+    if not answer_text:
+        return False
+    if answer_text == expected_text or expected_text in answer_text:
+        return True
+
+    expected_categories = punishment_categories(expected)
+    answer_categories = punishment_categories(answer)
+    return bool(expected_categories & answer_categories)
 
 
 def advance_interview(chat_id, session, call=None):
