@@ -321,9 +321,11 @@ def build_interview_questions(level=None):
             escaped_statement = html.escape(statement)
             escaped_punishment = html.escape(punishment)
             questions.append({
-                "question": f"Разрешено ли {escaped_statement}?",
+                "question": "",
+                "statement": escaped_statement,
                 "punishment": escaped_punishment,
-                "answer_type": "no",
+                "answer_type": "yes_no",
+                "expected_answer": None,
             })
             if level == "leader":
                 questions.append({
@@ -415,7 +417,7 @@ def start_interview_session(chat_id, level):
     fact_types = {"cap_schedule", "time_range", "number_sequence", "time_list"}
     fact_questions = [item for item in question_pool if item["answer_type"] in fact_types]
     punishment_questions = [item for item in question_pool if item["answer_type"] == "punishment"]
-    rule_questions = [item for item in question_pool if item["answer_type"] == "no"]
+    rule_questions = [item for item in question_pool if item["answer_type"] == "yes_no"]
 
     fact_amount = min(3, len(fact_questions), amount)
     punishment_amount = min(
@@ -431,6 +433,22 @@ def start_interview_session(chat_id, level):
         random.sample(rule_questions, min(remaining_amount, len(rule_questions)))
     )
     random.shuffle(selected_questions)
+
+    # Чередуем формулировки правил, чтобы правильные ответы были и «да»,
+    # и «нет». Случайно выбираем, с какой формулировки начать.
+    prohibited_first = random.choice([True, False])
+    rule_index = 0
+    for question in selected_questions:
+        if question["answer_type"] != "yes_no":
+            continue
+        prohibited_question = (rule_index % 2 == 0) == prohibited_first
+        if prohibited_question:
+            question["question"] = f"Запрещено ли {question['statement']}?"
+            question["expected_answer"] = "yes"
+        else:
+            question["question"] = f"Разрешено ли {question['statement']}?"
+            question["expected_answer"] = "no"
+        rule_index += 1
 
     session = {
         "id": uuid.uuid4().hex[:8],
@@ -549,8 +567,9 @@ def classify_interview_answer(text):
 
 
 def is_interview_answer_correct(item, raw_answer):
-    if item["answer_type"] == "no":
-        return classify_interview_answer(raw_answer) == "no"
+    if item["answer_type"] in {"no", "yes_no"}:
+        expected_answer = item.get("expected_answer", "no")
+        return classify_interview_answer(raw_answer) == expected_answer
     if item["answer_type"] == "punishment":
         return punishment_answer_is_correct(item["punishment"], raw_answer)
     if item["answer_type"] in {"number_sequence", "cap_schedule"}:
@@ -561,6 +580,8 @@ def is_interview_answer_correct(item, raw_answer):
 
 
 def expected_interview_answer_text(item):
+    if item["answer_type"] in {"no", "yes_no"}:
+        return "Да" if item.get("expected_answer", "no") == "yes" else "Нет"
     if item["answer_type"] == "punishment":
         return item["punishment"]
     if item["answer_type"] == "cap_schedule":
@@ -686,19 +707,19 @@ def advance_interview(chat_id, session, call=None):
 def process_interview_answer(chat_id, session, raw_answer, callback_id=None, call=None):
     index = session["current"]
     item = session["questions"][index]
-    if item["answer_type"] == "no":
+    if item["answer_type"] in {"no", "yes_no"}:
         answer = classify_interview_answer(raw_answer)
         if answer is None:
-            message = "Не понял ответ. Напишите, например: «да», «нет», «можно» или «нельзя»."
+            message = "Не понял ответ. Напишите «да» или «нет»."
             if callback_id:
                 bot.answer_callback_query(callback_id, message[:190], show_alert=True)
             send_interview_question(chat_id, session, prefix=message)
             return
-        is_correct = answer == "no"
+        is_correct = answer == item.get("expected_answer", "no")
     else:
         is_correct = is_interview_answer_correct(item, raw_answer)
 
-    correct_answer = "Нет" if item["answer_type"] == "no" else expected_interview_answer_text(item)
+    correct_answer = expected_interview_answer_text(item)
     answer_record = {
         "question": item["question"],
         "user_answer": raw_answer.strip() or "—",
