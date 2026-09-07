@@ -336,7 +336,7 @@ def split_rules(section):
     current = f"<b>{title}</b>\n\n"
 
     for number, rule in enumerate(data["rules"], start=1):
-        line = f"{number}. {html.escape(rule)}\n"
+        line = f"{number}. {html.escape(rule)}\n\n"
         if len(current) + len(line) > 3600 and current.strip() != f"<b>{title}</b>":
             pages.append(current.rstrip())
             current = f"<b>{title} — продолжение</b>\n\n"
