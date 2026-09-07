@@ -269,8 +269,29 @@ def telegram_webhook():
 
 
 def start_keyboard():
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(types.InlineKeyboardButton("Правила", callback_data="menu:rules"))
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        types.InlineKeyboardButton("Пройти текстовый обзвон", callback_data="menu:interview"),
+        types.InlineKeyboardButton("Правила", callback_data="menu:rules"),
+    )
+    return keyboard
+
+
+def interview_keyboard():
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        types.InlineKeyboardButton("Правительство", callback_data="interview:government"),
+        types.InlineKeyboardButton("Армия", callback_data="interview:army"),
+        types.InlineKeyboardButton("Полиция", callback_data="interview:police"),
+        types.InlineKeyboardButton("СГБ", callback_data="interview:sgb"),
+        types.InlineKeyboardButton("Служба Спасения", callback_data="interview:rescue"),
+        types.InlineKeyboardButton("Гтрк", callback_data="interview:gtrk"),
+        types.InlineKeyboardButton("Больница", callback_data="interview:hospital"),
+        types.InlineKeyboardButton("ОПГ Тамбовское", callback_data="interview:tambov"),
+        types.InlineKeyboardButton("ОПГ Кавказское", callback_data="interview:caucasian"),
+        types.InlineKeyboardButton("ОПГ Оффники", callback_data="interview:offniki"),
+        types.InlineKeyboardButton("⬅️ Назад", callback_data="menu:home"),
+    )
     return keyboard
 
 
@@ -386,6 +407,52 @@ def handle_callback(call):
         if call.data == "menu:home":
             bot.delete_message(call.message.chat.id, call.message.message_id)
             show_home(call.message.chat.id)
+            return
+
+        if call.data == "menu:interview":
+            interview_text = "<b>Текстовый обзвон</b>\n\nВыберите организацию:"
+            if getattr(call.message, "content_type", "") == "photo":
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+                bot.send_message(
+                    call.message.chat.id,
+                    interview_text,
+                    reply_markup=interview_keyboard(),
+                    parse_mode="HTML",
+                )
+            else:
+                bot.edit_message_text(
+                    interview_text,
+                    call.message.chat.id,
+                    call.message.message_id,
+                    reply_markup=interview_keyboard(),
+                    parse_mode="HTML",
+                )
+            return
+
+        if len(action) == 2 and action[0] == "interview":
+            organization_names = {
+                "government": "Правительство",
+                "army": "Армия",
+                "police": "Полиция",
+                "sgb": "СГБ",
+                "rescue": "Служба Спасения",
+                "gtrk": "Гтрк",
+                "hospital": "Больница",
+                "tambov": "ОПГ Тамбовское",
+                "caucasian": "ОПГ Кавказское",
+                "offniki": "ОПГ Оффники",
+            }
+            organization = organization_names.get(action[1])
+            if organization:
+                bot.edit_message_text(
+                    f"<b>{organization}</b>\n\nТекстовый обзвон для этой организации выбран.",
+                    call.message.chat.id,
+                    call.message.message_id,
+                    reply_markup=types.InlineKeyboardMarkup().add(
+                        types.InlineKeyboardButton("⬅️ Назад", callback_data="menu:interview")
+                    ),
+                    parse_mode="HTML",
+                )
             return
 
         if call.data == "menu:rules":
