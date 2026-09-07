@@ -1,6 +1,7 @@
 import html
 import logging
 import os
+import re
 import threading
 import time
 
@@ -277,6 +278,77 @@ def start_keyboard():
     return keyboard
 
 
+
+INTERVIEW_RULE_SECTIONS = ("war", "kidnap", "base", "cash", "trucks", "airdrop")
+OPG_INTERVIEW_KEYS = {"tambov", "caucasian", "offniki"}
+
+
+def build_interview_questions(level):
+    questions = []
+    for section in INTERVIEW_RULE_SECTIONS:
+        for rule in RULES[section]["rules"]:
+            if " | " not in rule:
+                continue
+            statement, punishment = rule.split(" | ", 1)
+            statement = re.sub(r"^Запрещ(?:ено|ен|ена|ён|ены)\\s+", "", statement)
+            statement = html.escape(statement)
+            punishment = html.escape(punishment)
+            question = f"Разрешено ли {statement}?"
+            if level == "deputy":
+                text = f"<b>Вопрос для обзвона на заместителя</b>\\n\\n{question}\\n\\n<b>Ответ:</b> Нет."
+            else:
+                text = (
+                    f"<b>Вопрос для обзвона на лидера</b>\\n\\n{question}\\n\\n"
+                    f"<b>Ответ:</b> Нет.\\n<b>Какое наказание?</b> — {punishment}."
+                )
+            questions.append(text)
+    return questions
+
+
+def interview_level_keyboard():
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        types.InlineKeyboardButton("Обзвон на заместителя", callback_data="interview:level:deputy"),
+        types.InlineKeyboardButton("Обзвон на лидера", callback_data="interview:level:leader"),
+        types.InlineKeyboardButton("⬅️ Назад", callback_data="menu:interview"),
+    )
+    return keyboard
+
+
+def interview_question_keyboard(level, index, total):
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    navigation = []
+    if index > 0:
+        navigation.append(types.InlineKeyboardButton("◀️ Предыдущий", callback_data=f"interview:q:{level}:{index - 1}"))
+    if index < total - 1:
+        navigation.append(types.InlineKeyboardButton("Следующий ▶️", callback_data=f"interview:q:{level}:{index + 1}"))
+    if navigation:
+        keyboard.row(*navigation)
+    keyboard.add(types.InlineKeyboardButton("⬅️ К выбору типа", callback_data=f"interview:levelback:{level}"))
+    return keyboard
+
+
+def show_interview_question(call, level, index):
+    questions = build_interview_questions(level)
+    if not questions:
+        bot.edit_message_text(
+            "Вопросы для этого типа обзвона пока не добавлены.",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=interview_level_keyboard(),
+        )
+        return
+    index = max(0, min(index, len(questions) - 1))
+    text = f"{questions[index]}\\n\\n<i>Вопрос {index + 1} из {len(questions)}</i>"
+    bot.edit_message_text(
+        text,
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=interview_question_keyboard(level, index, len(questions)),
+        parse_mode="HTML",
+    )
+
+
 def interview_keyboard():
     keyboard = types.InlineKeyboardMarkup(row_width=1)
     keyboard.add(
@@ -429,6 +501,26 @@ def handle_callback(call):
                 )
             return
 
+        if len(action) == 3 and action[0] == "interview" and action[1] == "level":
+            if action[2] in {"deputy", "leader"}:
+                show_interview_question(call, action[2], 0)
+            return
+
+        if len(action) == 4 and action[0] == "interview" and action[1] == "q":
+            if action[2] in {"deputy", "leader"}:
+                show_interview_question(call, action[2], int(action[3]))
+            return
+
+        if len(action) == 3 and action[0] == "interview" and action[1] == "levelback":
+            bot.edit_message_text(
+                "<b>Текстовый обзвон</b>\\n\\nВыберите сложность обзвона:",
+                call.message.chat.id,
+                call.message.message_id,
+                reply_markup=interview_level_keyboard(),
+                parse_mode="HTML",
+            )
+            return
+
         if len(action) == 2 and action[0] == "interview":
             organization_names = {
                 "government": "Правительство",
@@ -443,9 +535,17 @@ def handle_callback(call):
                 "offniki": "ОПГ Оффники",
             }
             organization = organization_names.get(action[1])
-            if organization:
+            if organization and action[1] in OPG_INTERVIEW_KEYS:
                 bot.edit_message_text(
-                    f"<b>{organization}</b>\n\nТекстовый обзвон для этой организации выбран.",
+                    f"<b>{organization}</b>\\n\\nВыберите сложность обзвона:",
+                    call.message.chat.id,
+                    call.message.message_id,
+                    reply_markup=interview_level_keyboard(),
+                    parse_mode="HTML",
+                )
+            elif organization:
+                bot.edit_message_text(
+                    f"<b>{organization}</b>\\n\\nТекстовый обзвон для этой организации пока не настроен.",
                     call.message.chat.id,
                     call.message.message_id,
                     reply_markup=types.InlineKeyboardMarkup().add(
