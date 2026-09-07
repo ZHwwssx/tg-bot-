@@ -298,6 +298,7 @@ def build_interview_questions(level=None):
             questions.append({
                 "question": f"Разрешено ли {html.escape(statement)}?",
                 "punishment": html.escape(punishment),
+                "answer_type": "no",
             })
     return questions
 
@@ -313,11 +314,7 @@ def interview_level_keyboard():
 
 
 def interview_answer_keyboard(session_id, index):
-    keyboard = types.InlineKeyboardMarkup(row_width=2)
-    keyboard.row(
-        types.InlineKeyboardButton("Да", callback_data=f"interview:answer:{session_id}:{index}:yes"),
-        types.InlineKeyboardButton("Нет", callback_data=f"interview:answer:{session_id}:{index}:no"),
-    )
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
     keyboard.add(types.InlineKeyboardButton("❌ Завершить обзвон", callback_data="interview:cancel"))
     return keyboard
 
@@ -346,7 +343,7 @@ def start_interview_session(chat_id, level):
     return session
 
 
-def show_interview_question(call, session, prefix=None):
+def interview_question_text(session):
     questions = session["questions"]
     index = session["current"]
     item = questions[index]
@@ -354,18 +351,141 @@ def show_interview_question(call, session, prefix=None):
     text = (
         f"<b>Обзвон на {level_title}</b>\n\n"
         f"{item['question']}\n\n"
-        f"<i>Вопрос {index + 1} из {len(questions)}</i>"
+        f"<i>Вопрос {index + 1} из {len(questions)}</i>\n\n"
+        "<i>Напишите ответ сообщением. Например: «да», «нет», «можно», "
+        "«нельзя», «разрешено», «запрещено».</i>"
     )
     if session["level"] == "leader":
         text += "\n\n<i>После ответа бот покажет наказание.</i>"
+    return text
+
+
+def show_interview_question(call, session, prefix=None):
+    text = interview_question_text(session)
     if prefix:
         text = f"{prefix}\n\n{text}"
     bot.edit_message_text(
         text,
         call.message.chat.id,
         call.message.message_id,
-        reply_markup=interview_answer_keyboard(session["id"], index),
+        reply_markup=interview_answer_keyboard(session["id"], session["current"]),
         parse_mode="HTML",
+    )
+
+
+def send_interview_question(chat_id, session):
+    bot.send_message(
+        chat_id,
+        interview_question_text(session),
+        reply_markup=interview_answer_keyboard(session["id"], session["current"]),
+        parse_mode="HTML",
+    )
+
+
+def normalize_interview_answer(text):
+    text = (text or "").lower().replace("ё", "е")
+    return re.sub(r"[^а-яa-z0-9]+", " ", text).strip()
+
+
+def classify_interview_answer(text):
+    normalized = normalize_interview_answer(text)
+    if not normalized:
+        return None
+
+    negative = (
+        normalized in {"нет", "не", "нельзя", "запрещено", "запрещен", "запрещена", "ни в коем случае"}
+        or "не разреш" in normalized
+        or "запрещ" in normalized
+        or "нельзя" in normalized
+        or re.search(r"\bнет\b", normalized)
+    )
+    if negative:
+        return "no"
+
+    positive = (
+        normalized in {"да", "конечно", "разрешено", "можно", "естественно", "разрешается", "допустимо"}
+        or "разреш" in normalized
+        or "можн" in normalized
+        or "конечно" in normalized
+        or "естественно" in normalized
+    )
+    if positive:
+        return "yes"
+    return None
+
+
+def process_interview_answer(chat_id, session, raw_answer, callback_id=None, call=None):
+    index = session["current"]
+    item = session["questions"][index]
+    answer = classify_interview_answer(raw_answer)
+    if answer is None:
+        message = "Не понял ответ. Напишите, например: «да», «нет», «можно» или «нельзя»."
+        if callback_id:
+            bot.answer_callback_query(callback_id, message[:190], show_alert=True)
+        else:
+            bot.send_message(chat_id, message)
+        return
+
+    is_correct = answer == "no"
+    if is_correct:
+        session["score"] += 1
+        feedback = "Верно!"
+    else:
+        feedback = "Неверно. Правильный ответ: Нет."
+    if session["level"] == "leader":
+        feedback += f" Наказание: {item['punishment']}"
+
+    if callback_id:
+        bot.answer_callback_query(callback_id, feedback[:190], show_alert=True)
+    else:
+        bot.send_message(chat_id, feedback, parse_mode="HTML")
+
+    session["current"] += 1
+    if session["current"] >= len(session["questions"]):
+        total = len(session["questions"])
+        score = session["score"]
+        result_text = (
+            f"<b>Обзвон завершён</b>\n\n"
+            f"Ваш результат: <b>{score} из {total}</b>.\n"
+            f"Ошибок: <b>{total - score}</b>."
+        )
+        if call:
+            bot.edit_message_text(
+                result_text,
+                chat_id,
+                call.message.message_id,
+                reply_markup=interview_result_keyboard(session["level"]),
+                parse_mode="HTML",
+            )
+        else:
+            bot.send_message(
+                chat_id,
+                result_text,
+                reply_markup=interview_result_keyboard(session["level"]),
+                parse_mode="HTML",
+            )
+        return
+
+    if call:
+        show_interview_question(call, session)
+    else:
+        send_interview_question(chat_id, session)
+
+
+def handle_interview_answer(call, session_id, index, answer):
+    session = INTERVIEW_SESSIONS.get(call.message.chat.id)
+    if not session or session["id"] != session_id:
+        bot.answer_callback_query(call.id, "Этот обзвон уже завершён. Начните новый.", show_alert=True)
+        return
+    if index != session["current"] or index >= len(session["questions"]):
+        bot.answer_callback_query(call.id, "Этот вопрос уже неактивен.", show_alert=True)
+        return
+    process_interview_answer(
+        call.message.chat.id,
+        session,
+        "да" if answer == "yes" else "нет",
+        callback_id=call.id,
+        call=call,
     )
 
 
@@ -525,6 +645,14 @@ def show_section(call, section, page):
 @bot.message_handler(commands=["start"])
 def handle_start(message):
     show_home(message.chat.id)
+
+
+@bot.message_handler(func=lambda message: True)
+def handle_text_answer(message):
+    session = INTERVIEW_SESSIONS.get(message.chat.id)
+    if not session or not message.text or message.text.startswith("/"):
+        return
+    process_interview_answer(message.chat.id, session, message.text)
 
 
 @bot.callback_query_handler(func=lambda call: True)
