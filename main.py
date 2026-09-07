@@ -406,7 +406,7 @@ def interview_question_text(session):
         "«нельзя», «разрешено», «запрещено».</i>"
     )
     if session["level"] == "leader" and item["punishment"]:
-        text += "\n\n<i>После ответа бот покажет наказание.</i>"
+        text += "\n\n<i>После правильного ответа бот попросит назвать наказание.</i>"
     return text
 
 
@@ -507,36 +507,15 @@ def expected_interview_answer_text(item):
     return "Нет"
 
 
-def process_interview_answer(chat_id, session, raw_answer, callback_id=None, call=None):
-    index = session["current"]
-    item = session["questions"][index]
-    if item["answer_type"] == "no":
-        answer = classify_interview_answer(raw_answer)
-        if answer is None:
-            message = "Не понял ответ. Напишите, например: «да», «нет», «можно» или «нельзя»."
-            if callback_id:
-                bot.answer_callback_query(callback_id, message[:190], show_alert=True)
-            else:
-                bot.send_message(chat_id, message)
-            return
-        is_correct = answer == "no"
-    else:
-        is_correct = is_interview_answer_correct(item, raw_answer)
-    if is_correct:
-        session["score"] += 1
-        feedback = "Верно!"
-    elif item["answer_type"] == "no":
-        feedback = "Неверно. Правильный ответ: Нет."
-    else:
-        feedback = f"Неверно. Правильный ответ: {expected_interview_answer_text(item)}."
-    if session["level"] == "leader" and item["punishment"]:
-        feedback += f" Наказание: {item['punishment']}"
+def punishment_answer_is_correct(expected, answer):
+    expected_text = normalize_interview_answer(html.unescape(expected))
+    answer_text = normalize_interview_answer(answer)
+    return bool(answer_text) and (
+        answer_text == expected_text or expected_text in answer_text
+    )
 
-    if callback_id:
-        bot.answer_callback_query(callback_id, feedback[:190], show_alert=True)
-    else:
-        bot.send_message(chat_id, feedback, parse_mode="HTML")
 
+def advance_interview(chat_id, session, call=None):
     session["current"] += 1
     if session["current"] >= len(session["questions"]):
         total = len(session["questions"])
@@ -569,6 +548,72 @@ def process_interview_answer(chat_id, session, raw_answer, callback_id=None, cal
         send_interview_question(chat_id, session)
 
 
+def process_interview_answer(chat_id, session, raw_answer, callback_id=None, call=None):
+    if session.get("awaiting_punishment"):
+        item = session.pop("awaiting_punishment")
+        is_correct = punishment_answer_is_correct(item["punishment"], raw_answer)
+        if is_correct:
+            feedback = "<b>Наказание указано верно.</b>"
+        else:
+            feedback = (
+                "<b>Наказание указано неверно.</b>\n"
+                f"Правильный ответ: {item['punishment']}"
+            )
+        if callback_id:
+            bot.answer_callback_query(callback_id, "Ответ на наказание проверен.", show_alert=True)
+        bot.send_message(chat_id, feedback, parse_mode="HTML")
+        advance_interview(chat_id, session, call)
+        return
+
+    index = session["current"]
+    item = session["questions"][index]
+    if item["answer_type"] == "no":
+        answer = classify_interview_answer(raw_answer)
+        if answer is None:
+            message = "Не понял ответ. Напишите, например: «да», «нет», «можно» или «нельзя»."
+            if callback_id:
+                bot.answer_callback_query(callback_id, message[:190], show_alert=True)
+            else:
+                bot.send_message(chat_id, message)
+            return
+        is_correct = answer == "no"
+    else:
+        is_correct = is_interview_answer_correct(item, raw_answer)
+
+    if is_correct:
+        session["score"] += 1
+        feedback = "Верно!"
+    elif item["answer_type"] == "no":
+        feedback = "Неверно. Правильный ответ: Нет."
+    else:
+        feedback = f"Неверно. Правильный ответ: {expected_interview_answer_text(item)}."
+
+    if session["level"] == "leader" and item["punishment"] and is_correct:
+        session["awaiting_punishment"] = item
+        if callback_id:
+            bot.answer_callback_query(
+                callback_id,
+                "Верно! Напишите наказание отдельным сообщением.",
+                show_alert=True,
+            )
+        bot.send_message(
+            chat_id,
+            "<b>Верно!</b>\n\nКакое наказание предусмотрено?",
+            parse_mode="HTML",
+        )
+        return
+
+    if session["level"] == "leader" and item["punishment"]:
+        feedback += f" Наказание: {item['punishment']}"
+
+    if callback_id:
+        bot.answer_callback_query(callback_id, feedback[:190], show_alert=True)
+    else:
+        bot.send_message(chat_id, feedback, parse_mode="HTML")
+
+    advance_interview(chat_id, session, call)
+
+
 def handle_interview_answer(call, session_id, index, answer):
     session = INTERVIEW_SESSIONS.get(call.message.chat.id)
     if not session or session["id"] != session_id:
@@ -584,45 +629,6 @@ def handle_interview_answer(call, session_id, index, answer):
         callback_id=call.id,
         call=call,
     )
-
-
-def handle_interview_answer(call, session_id, index, answer):
-    session = INTERVIEW_SESSIONS.get(call.message.chat.id)
-    if not session or session["id"] != session_id:
-        bot.answer_callback_query(call.id, "Этот обзвон уже завершён. Начните новый.", show_alert=True)
-        return
-    if index != session["current"] or index >= len(session["questions"]):
-        bot.answer_callback_query(call.id, "Этот вопрос уже неактивен.", show_alert=True)
-        return
-
-    item = session["questions"][index]
-    is_correct = answer == "no"
-    if is_correct:
-        session["score"] += 1
-        feedback = "Верно!"
-    else:
-        feedback = "Неверно. Правильный ответ: Нет."
-    if session["level"] == "leader":
-        feedback += f" Наказание: {item['punishment']}"
-    bot.answer_callback_query(call.id, feedback[:190], show_alert=True)
-
-    session["current"] += 1
-    if session["current"] >= len(session["questions"]):
-        total = len(session["questions"])
-        score = session["score"]
-        bot.edit_message_text(
-            f"<b>Обзвон завершён</b>\n\n"
-            f"Ваш результат: <b>{score} из {total}</b>.\n"
-            f"Ошибок: <b>{total - score}</b>.",
-            call.message.chat.id,
-            call.message.message_id,
-            reply_markup=interview_result_keyboard(session["level"]),
-            parse_mode="HTML",
-        )
-        return
-    show_interview_question(call, session)
-
-
 def interview_keyboard():
     keyboard = types.InlineKeyboardMarkup(row_width=1)
     keyboard.add(
