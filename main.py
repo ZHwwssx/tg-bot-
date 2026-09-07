@@ -394,7 +394,7 @@ def interview_question_text(session):
         "<i>Напишите ответ сообщением. Например: «да», «нет», «можно», "
         "«нельзя», «разрешено», «запрещено».</i>"
     )
-    if session["level"] == "leader":
+    if session["level"] == "leader" and item["punishment"]:
         text += "\n\n<i>После ответа бот покажет наказание.</i>"
     return text
 
@@ -484,6 +484,18 @@ def is_interview_answer_correct(item, raw_answer):
     return False
 
 
+def expected_interview_answer_text(item):
+    if item["answer_type"] == "cap_schedule":
+        return "Будние: 13, 15, 17, 19, 21; выходные: 11, 13, 15, 17, 19, 21"
+    if item["answer_type"] == "time_range":
+        return "с 08:00 до 22:00"
+    if item["answer_type"] == "time_list":
+        return "14:40 и 19:40"
+    if item["answer_type"] == "number_sequence":
+        return ", ".join(str(number) for number in item["expected_numbers"])
+    return "Нет"
+
+
 def process_interview_answer(chat_id, session, raw_answer, callback_id=None, call=None):
     index = session["current"]
     item = session["questions"][index]
@@ -502,9 +514,11 @@ def process_interview_answer(chat_id, session, raw_answer, callback_id=None, cal
     if is_correct:
         session["score"] += 1
         feedback = "Верно!"
-    else:
+    elif item["answer_type"] == "no":
         feedback = "Неверно. Правильный ответ: Нет."
-    if session["level"] == "leader":
+    else:
+        feedback = f"Неверно. Правильный ответ: {expected_interview_answer_text(item)}."
+    if session["level"] == "leader" and item["punishment"]:
         feedback += f" Наказание: {item['punishment']}"
 
     if callback_id:
