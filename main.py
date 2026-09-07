@@ -325,13 +325,23 @@ def handle_callback(call):
             return
 
         if call.data == "menu:rules":
-            bot.edit_message_text(
-                "<b>Правила</b>\n\nВыберите раздел:",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=rules_keyboard(),
-                parse_mode="HTML",
-            )
+            rules_text = "<b>Правила</b>\n\nВыберите раздел:"
+            if getattr(call.message, "content_type", "") == "photo":
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+                bot.send_message(
+                    call.message.chat.id,
+                    rules_text,
+                    reply_markup=rules_keyboard(),
+                    parse_mode="HTML",
+                )
+            else:
+                bot.edit_message_text(
+                    rules_text,
+                    call.message.chat.id,
+                    call.message.message_id,
+                    reply_markup=rules_keyboard(),
+                    parse_mode="HTML",
+                )
             return
 
         if call.data == "menu:ghetto":
