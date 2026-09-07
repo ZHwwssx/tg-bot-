@@ -284,6 +284,7 @@ def start_keyboard():
 INTERVIEW_RULE_SECTIONS = ("war", "kidnap", "base", "cash", "trucks", "airdrop")
 OPG_INTERVIEW_KEYS = {"tambov", "caucasian", "offniki"}
 INTERVIEW_QUESTION_COUNT = 20
+LEADER_PUNISHMENT_QUESTION_COUNT = 2
 INTERVIEW_SESSIONS = {}
 INTERVIEW_CONFIRMATIONS = {}
 
@@ -317,11 +318,19 @@ def build_interview_questions(level=None):
                 continue
             statement, punishment = rule.split(" | ", 1)
             statement = re.sub(r"^Запрещ(?:ено|ен|ена|ён|ены)\s+", "", statement)
+            escaped_statement = html.escape(statement)
+            escaped_punishment = html.escape(punishment)
             questions.append({
-                "question": f"Разрешено ли {html.escape(statement)}?",
-                "punishment": html.escape(punishment),
+                "question": f"Разрешено ли {escaped_statement}?",
+                "punishment": escaped_punishment,
                 "answer_type": "no",
             })
+            if level == "leader":
+                questions.append({
+                    "question": f"Какое наказание предусмотрено за: {escaped_statement}?",
+                    "punishment": escaped_punishment,
+                    "answer_type": "punishment",
+                })
 
     questions.extend([
         {
@@ -401,14 +410,25 @@ def start_interview_session(chat_id, level):
     question_pool = build_interview_questions(level)
     amount = min(INTERVIEW_QUESTION_COUNT, len(question_pool))
 
-    # Не перегружаем один обзвон фактическими вопросами: они появляются
-    # случайно и вперемешку с вопросами по правилам.
-    fact_questions = [item for item in question_pool if item["answer_type"] != "no"]
+    # В каждом обзвоне остаются фактические вопросы, а для лидера
+    # добавляется только небольшое число отдельных вопросов о наказаниях.
+    fact_types = {"cap_schedule", "time_range", "number_sequence", "time_list"}
+    fact_questions = [item for item in question_pool if item["answer_type"] in fact_types]
+    punishment_questions = [item for item in question_pool if item["answer_type"] == "punishment"]
     rule_questions = [item for item in question_pool if item["answer_type"] == "no"]
+
     fact_amount = min(3, len(fact_questions), amount)
+    punishment_amount = min(
+        LEADER_PUNISHMENT_QUESTION_COUNT if level == "leader" else 0,
+        len(punishment_questions),
+        max(0, amount - fact_amount),
+    )
     selected_questions = random.sample(fact_questions, fact_amount)
+    selected_questions.extend(random.sample(punishment_questions, punishment_amount))
+
+    remaining_amount = amount - len(selected_questions)
     selected_questions.extend(
-        random.sample(rule_questions, min(amount - fact_amount, len(rule_questions)))
+        random.sample(rule_questions, min(remaining_amount, len(rule_questions)))
     )
     random.shuffle(selected_questions)
 
@@ -431,16 +451,19 @@ def interview_question_text(session):
     index = session["current"]
     item = questions[index]
     level_title = "заместителя" if session["level"] == "deputy" else "лидера"
-    text = (
+    if item["answer_type"] == "punishment":
+        instruction = "<i>Напишите название наказания сообщением.</i>"
+    else:
+        instruction = (
+            "<i>Напишите ответ сообщением. Например: «да», «нет», «можно», "
+            "«нельзя», «разрешено», «запрещено».</i>"
+        )
+    return (
         f"<b>Обзвон на {level_title}</b>\n\n"
         f"{item['question']}\n\n"
         f"<i>Вопрос {index + 1} из {len(questions)}</i>\n\n"
-        "<i>Напишите ответ сообщением. Например: «да», «нет», «можно», "
-        "«нельзя», «разрешено», «запрещено».</i>"
+        f"{instruction}"
     )
-    if session["level"] == "leader" and item["punishment"]:
-        text += "\n\n<i>После ответа бот попросит назвать наказание.</i>"
-    return text
 
 
 def show_interview_question(call, session, prefix=None):
@@ -528,6 +551,8 @@ def classify_interview_answer(text):
 def is_interview_answer_correct(item, raw_answer):
     if item["answer_type"] == "no":
         return classify_interview_answer(raw_answer) == "no"
+    if item["answer_type"] == "punishment":
+        return punishment_answer_is_correct(item["punishment"], raw_answer)
     if item["answer_type"] in {"number_sequence", "cap_schedule"}:
         return extract_answer_numbers(raw_answer) == item["expected_numbers"]
     if item["answer_type"] in {"time_list", "time_range"}:
@@ -536,6 +561,8 @@ def is_interview_answer_correct(item, raw_answer):
 
 
 def expected_interview_answer_text(item):
+    if item["answer_type"] == "punishment":
+        return item["punishment"]
     if item["answer_type"] == "cap_schedule":
         return "Будние: 13, 15, 17, 19, 21; выходные: 11, 13, 15, 17, 19, 21"
     if item["answer_type"] == "time_range":
@@ -657,23 +684,14 @@ def advance_interview(chat_id, session, call=None):
 
 
 def process_interview_answer(chat_id, session, raw_answer, callback_id=None, call=None):
-    if session.get("pending_answer"):
-        answer_record = session.pop("pending_answer")
-        punishment_correct = punishment_answer_is_correct(
-            answer_record["punishment_expected"],
-            raw_answer,
-        )
-        answer_record["punishment_user_answer"] = raw_answer.strip() or "—"
-        answer_record["punishment_correct"] = punishment_correct
-        finish_interview_answer(chat_id, session, answer_record)
-        return
-
     index = session["current"]
     item = session["questions"][index]
     if item["answer_type"] == "no":
         answer = classify_interview_answer(raw_answer)
         if answer is None:
             message = "Не понял ответ. Напишите, например: «да», «нет», «можно» или «нельзя»."
+            if callback_id:
+                bot.answer_callback_query(callback_id, message[:190], show_alert=True)
             send_interview_question(chat_id, session, prefix=message)
             return
         is_correct = answer == "no"
@@ -686,22 +704,12 @@ def process_interview_answer(chat_id, session, raw_answer, callback_id=None, cal
         "user_answer": raw_answer.strip() or "—",
         "correct_answer": correct_answer,
         "primary_correct": is_correct,
-        "punishment_expected": item["punishment"] if session["level"] == "leader" else "",
+        "punishment_expected": "",
         "punishment_user_answer": "",
         "punishment_correct": True,
     }
-
-    if answer_record["punishment_expected"]:
-        session["pending_answer"] = answer_record
-        # Старый вопрос удаляется перед отправкой запроса о наказании.
-        sent = send_fresh_message(
-            chat_id,
-            "<b>Ответ принят.</b>\n\nКакое наказание предусмотрено?",
-            old_message_id=session.get("last_message_id"),
-        )
-        session["last_message_id"] = sent.message_id
-        return
-
+    if callback_id:
+        bot.answer_callback_query(callback_id, "Ответ принят.")
     finish_interview_answer(chat_id, session, answer_record)
 
 
