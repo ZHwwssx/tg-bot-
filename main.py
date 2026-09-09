@@ -276,6 +276,15 @@ def start_keyboard():
     keyboard.add(
         types.InlineKeyboardButton("Пройти текстовый обзвон", callback_data="menu:interview"),
         types.InlineKeyboardButton("Правила", callback_data="menu:rules"),
+        types.InlineKeyboardButton("ИИ помощь", callback_data="menu:ai_help"),
+    )
+    return keyboard
+
+
+def ai_help_keyboard():
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        types.InlineKeyboardButton("⬅️ Назад", callback_data="menu:home"),
     )
     return keyboard
 
@@ -1209,6 +1218,30 @@ def handle_callback(call):
             INTERVIEW_CONFIRMATIONS.pop(call.message.chat.id, None)
             bot.delete_message(call.message.chat.id, call.message.message_id)
             show_home(call.message.chat.id)
+            return
+
+        if call.data == "menu:ai_help":
+            ai_help_text = (
+                "<b>ИИ помощь</b>\n\n"
+                "Этот раздел готов к настройке.\n"
+                "Скоро здесь появится специальный ИИ-помощник."
+            )
+            if getattr(call.message, "content_type", "") == "photo":
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+                bot.send_message(
+                    call.message.chat.id,
+                    ai_help_text,
+                    reply_markup=ai_help_keyboard(),
+                    parse_mode="HTML",
+                )
+            else:
+                bot.edit_message_text(
+                    ai_help_text,
+                    call.message.chat.id,
+                    call.message.message_id,
+                    reply_markup=ai_help_keyboard(),
+                    parse_mode="HTML",
+                )
             return
 
         if call.data == "menu:interview":
