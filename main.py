@@ -1,4 +1,5 @@
 import html
+import json
 import logging
 import os
 import random
@@ -6,6 +7,9 @@ import re
 import uuid
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 import telebot
 from flask import Flask, request
@@ -22,6 +26,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("Укажите TELEGRAM_BOT_TOKEN или BOT_TOKEN в Environment Variables Render")
+
+AI_API_KEY = os.environ.get("AI_API_KEY")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 app = Flask(__name__)
@@ -289,6 +296,78 @@ def ai_help_keyboard():
     return keyboard
 
 
+def ask_gemini(chat_id, user_text):
+    if not AI_API_KEY:
+        raise RuntimeError("Не настроен ключ Gemini")
+
+    history = AI_SESSIONS.setdefault(chat_id, [])
+    contents = [
+        {
+            "role": item["role"],
+            "parts": [{"text": item["text"]}],
+        }
+        for item in history[-10:]
+    ]
+    contents.append({"role": "user", "parts": [{"text": user_text}]})
+    payload = {
+        "system_instruction": {
+            "parts": [{
+                "text": (
+                    "Ты отдельный ИИ-помощник внутри Telegram-бота. "
+                    "Отвечай на русском языке, понятно и по делу. "
+                    "Если задача неясна, задай один уточняющий вопрос."
+                )
+            }]
+        },
+        "contents": contents,
+        "generationConfig": {"temperature": 0.7},
+    }
+    model = urllib.parse.quote(GEMINI_MODEL, safe="")
+    key = urllib.parse.quote(AI_API_KEY, safe="")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        details = error.read().decode("utf-8", errors="replace")[:500]
+        logger.error("Gemini API вернул HTTP %s: %s", error.code, details)
+        raise RuntimeError("Gemini не смог обработать запрос") from error
+    except urllib.error.URLError as error:
+        logger.error("Ошибка подключения к Gemini: %s", error)
+        raise RuntimeError("Не удалось подключиться к Gemini") from error
+
+    parts = ((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
+    answer = "".join(part.get("text", "") for part in parts).strip()
+    if not answer:
+        raise RuntimeError("Gemini не вернул текстовый ответ")
+
+    history.extend([
+        {"role": "user", "text": user_text},
+        {"role": "model", "text": answer},
+    ])
+    AI_SESSIONS[chat_id] = history[-12:]
+    return answer
+
+
+def send_ai_answer(chat_id, answer):
+    chunks = [answer[index:index + 3900] for index in range(0, len(answer), 3900)] or ["Пустой ответ"]
+    for index, chunk in enumerate(chunks):
+        bot.send_message(
+            chat_id,
+            chunk,
+            reply_markup=ai_help_keyboard() if index == len(chunks) - 1 else None,
+            parse_mode=None,
+            disable_web_page_preview=True,
+        )
+
+
 
 INTERVIEW_RULE_SECTIONS = ("war", "kidnap", "base", "cash", "trucks", "airdrop")
 OPG_INTERVIEW_KEYS = {"tambov", "caucasian", "offniki"}
@@ -511,6 +590,7 @@ INTERVIEW_QUESTION_COUNT = 20
 LEADER_PUNISHMENT_QUESTION_COUNT = 2
 INTERVIEW_SESSIONS = {}
 INTERVIEW_CONFIRMATIONS = {}
+AI_SESSIONS = {}
 
 
 def safe_delete_message(chat_id, message_id):
@@ -1166,6 +1246,22 @@ def handle_text_answer(message):
         return
 
     chat_id = message.chat.id
+
+    if chat_id in AI_SESSIONS:
+        bot.send_chat_action(chat_id, "typing")
+        try:
+            answer = ask_gemini(chat_id, message.text)
+            send_ai_answer(chat_id, answer)
+        except RuntimeError as error:
+            logger.error("Ошибка ИИ-помощи: %s", error)
+            bot.send_message(
+                chat_id,
+                "Не удалось получить ответ от Gemini. Попробуйте ещё раз позже.",
+                reply_markup=ai_help_keyboard(),
+                parse_mode="HTML",
+            )
+        return
+
     pending = INTERVIEW_CONFIRMATIONS.get(chat_id)
     if pending:
         safe_delete_message(chat_id, message.message_id)
@@ -1216,15 +1312,19 @@ def handle_callback(call):
 
         if call.data == "menu:home":
             INTERVIEW_CONFIRMATIONS.pop(call.message.chat.id, None)
+            AI_SESSIONS.pop(call.message.chat.id, None)
             bot.delete_message(call.message.chat.id, call.message.message_id)
             show_home(call.message.chat.id)
             return
 
         if call.data == "menu:ai_help":
+            INTERVIEW_CONFIRMATIONS.pop(call.message.chat.id, None)
+            INTERVIEW_SESSIONS.pop(call.message.chat.id, None)
+            AI_SESSIONS[call.message.chat.id] = []
             ai_help_text = (
                 "<b>ИИ помощь</b>\n\n"
-                "Этот раздел готов к настройке.\n"
-                "Скоро здесь появится специальный ИИ-помощник."
+                "Напиши сообщение, и Gemini ответит на него.\n"
+                "Диалог будет отдельным от обзвона."
             )
             if getattr(call.message, "content_type", "") == "photo":
                 bot.delete_message(call.message.chat.id, call.message.message_id)
@@ -1246,6 +1346,7 @@ def handle_callback(call):
 
         if call.data == "menu:interview":
             INTERVIEW_CONFIRMATIONS.pop(call.message.chat.id, None)
+            AI_SESSIONS.pop(call.message.chat.id, None)
             interview_text = "<b>Текстовый обзвон</b>\n\nВыберите организацию:"
             if getattr(call.message, "content_type", "") == "photo":
                 bot.delete_message(call.message.chat.id, call.message.message_id)
