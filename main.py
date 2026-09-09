@@ -298,7 +298,7 @@ def ai_help_keyboard():
 
 def ask_gemini(chat_id, user_text):
     if not AI_API_KEY:
-        raise RuntimeError("Не настроен ключ Gemini")
+        raise RuntimeError("Render не передал AI_API_KEY. Проверь точное имя переменной.")
 
     history = AI_SESSIONS.setdefault(chat_id, [])
     contents = [
@@ -338,10 +338,20 @@ def ask_gemini(chat_id, user_text):
     except urllib.error.HTTPError as error:
         details = error.read().decode("utf-8", errors="replace")[:500]
         logger.error("Gemini API вернул HTTP %s: %s", error.code, details)
-        raise RuntimeError("Gemini не смог обработать запрос") from error
+        if error.code in {401, 403}:
+            message = f"Gemini не принял API-ключ (HTTP {error.code}). Проверь ключ в Render."
+        elif error.code == 404:
+            message = f"Модель Gemini не найдена (HTTP 404). Проверь имя модели: {GEMINI_MODEL}."
+        elif error.code == 429:
+            message = "Gemini временно ограничил запросы. Проверь лимит API и попробуй позже."
+        elif error.code == 400:
+            message = "Gemini отклонил формат запроса (HTTP 400)."
+        else:
+            message = f"Gemini вернул ошибку HTTP {error.code}."
+        raise RuntimeError(message) from error
     except urllib.error.URLError as error:
         logger.error("Ошибка подключения к Gemini: %s", error)
-        raise RuntimeError("Не удалось подключиться к Gemini") from error
+        raise RuntimeError("Render не смог подключиться к Gemini") from error
 
     parts = ((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
     answer = "".join(part.get("text", "") for part in parts).strip()
@@ -1256,7 +1266,7 @@ def handle_text_answer(message):
             logger.error("Ошибка ИИ-помощи: %s", error)
             bot.send_message(
                 chat_id,
-                "Не удалось получить ответ от Gemini. Попробуйте ещё раз позже.",
+                "<b>Ошибка Gemini</b>\n\n" + html.escape(str(error)),
                 reply_markup=ai_help_keyboard(),
                 parse_mode="HTML",
             )
