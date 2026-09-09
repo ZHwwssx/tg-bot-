@@ -306,7 +306,7 @@ def ask_gemini(chat_id, user_text):
             "role": item["role"],
             "parts": [{"text": item["text"]}],
         }
-        for item in history[-10:]
+        for item in history[-6:]
     ]
     contents.append({"role": "user", "parts": [{"text": user_text}]})
     payload = {
@@ -320,7 +320,7 @@ def ask_gemini(chat_id, user_text):
             }]
         },
         "contents": contents,
-        "generationConfig": {"temperature": 0.7},
+        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 512},
     }
     model = urllib.parse.quote(GEMINI_MODEL, safe="")
     key = urllib.parse.quote(AI_API_KEY, safe="")
