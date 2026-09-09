@@ -310,7 +310,7 @@ def ask_gemini(chat_id, user_text):
     ]
     contents.append({"role": "user", "parts": [{"text": user_text}]})
     payload = {
-        "system_instruction": {
+        "systemInstruction": {
             "parts": [{
                 "text": (
                     "Ты отдельный ИИ-помощник внутри Telegram-бота. "
