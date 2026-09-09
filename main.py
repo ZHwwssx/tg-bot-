@@ -28,7 +28,7 @@ if not TOKEN:
     raise RuntimeError("Укажите TELEGRAM_BOT_TOKEN или BOT_TOKEN в Environment Variables Render")
 
 AI_API_KEY = os.environ.get("AI_API_KEY")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 app = Flask(__name__)
