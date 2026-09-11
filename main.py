@@ -1529,8 +1529,6 @@ def run_web_server():
 
 
 if __name__ == "__main__":
-    # НАМЕРЕННАЯ ОШИБКА ДЛЯ ДИАГНОСТИКИ: удалите этот raise, чтобы бот снова запустился.
-    raise RuntimeError("НАМЕРЕННАЯ ОШИБКА: main.py → блок if __name__ == '__main__' → строка с этим raise")
     configure_bot_commands()
     external_url = os.environ.get("RENDER_EXTERNAL_URL")
     if external_url:
