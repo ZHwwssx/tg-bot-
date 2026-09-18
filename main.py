@@ -1530,10 +1530,11 @@ def run_web_server():
 
 if __name__ == "__main__":
     configure_bot_commands()
-    external_url = os.environ.get("RENDER_EXTERNAL_URL")
-    if external_url:
-        # На Render используем webhook: он исключает конфликт двух polling-процессов.
-        webhook_url = f"{external_url.rstrip('/')}/telegram-webhook"
+    webhook_url = os.environ.get("TELEGRAM_WEBHOOK_URL")
+    if webhook_url:
+        # Webhook включается только явно заданным URL, чтобы callback-кнопки
+        # не терялись из-за автоматически подставленного адреса хостинга.
+        webhook_url = webhook_url.rstrip("/") + "/telegram-webhook"
         bot.remove_webhook()
         time.sleep(1)
         bot.set_webhook(url=webhook_url)
