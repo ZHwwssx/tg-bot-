@@ -1233,163 +1233,121 @@ def section_keyboard(section, page, total):
     return keyboard
 
 
+def safe_answer_callback(call, text=None, show_alert=False):
+    """Подтверждает нажатие кнопки, не ломая основной сценарий."""
+    try:
+        kwargs = {}
+        if text:
+            kwargs["text"] = text[:200]
+        if show_alert:
+            kwargs["show_alert"] = True
+        bot.answer_callback_query(call.id, **kwargs)
+    except Exception:
+        logger.debug("Не удалось подтвердить callback %s", getattr(call, "id", "unknown"), exc_info=True)
+
+
+def render_callback_message(call, text, reply_markup=None):
+    """Показывает экран из callback независимо от типа исходного сообщения."""
+    chat_id = call.message.chat.id
+    message_id = call.message.message_id
+    try:
+        if getattr(call.message, "content_type", "") == "photo":
+            try:
+                bot.delete_message(chat_id, message_id)
+            except Exception:
+                logger.debug("Не удалось удалить фото-сообщение %s", message_id, exc_info=True)
+            return bot.send_message(
+                chat_id,
+                text,
+                reply_markup=reply_markup,
+                parse_mode="HTML",
+            )
+
+        return bot.edit_message_text(
+            text,
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=reply_markup,
+            parse_mode="HTML",
+        )
+    except Exception:
+        logger.exception("Не удалось отрисовать экран callback %s", getattr(call, "data", ""))
+        # Если старое сообщение уже нельзя изменить, создаём новое.
+        return bot.send_message(
+            chat_id,
+            text,
+            reply_markup=reply_markup,
+            parse_mode="HTML",
+        )
+
+
 def show_section(call, section, page):
     pages = split_rules(section)
     page = max(0, min(page, len(pages) - 1))
-    bot.edit_message_text(
+    render_callback_message(
+        call,
         pages[page],
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        reply_markup=section_keyboard(section, page, len(pages)),
-        parse_mode="HTML",
+        section_keyboard(section, page, len(pages)),
     )
-
-
-@bot.message_handler(commands=["start"])
-def handle_start(message):
-    show_home(message.chat.id)
-
-
-@bot.message_handler(func=lambda message: True)
-def handle_text_answer(message):
-    if not message.text or message.text.startswith("/"):
-        return
-
-    chat_id = message.chat.id
-
-    if chat_id in AI_SESSIONS:
-        bot.send_chat_action(chat_id, "typing")
-        try:
-            answer = ask_gemini(chat_id, message.text)
-            send_ai_answer(chat_id, answer)
-        except RuntimeError as error:
-            logger.error("Ошибка ИИ-помощи: %s", error)
-            bot.send_message(
-                chat_id,
-                "<b>Ошибка Gemini</b>\n\n" + html.escape(str(error)),
-                reply_markup=ai_help_keyboard(),
-                parse_mode="HTML",
-            )
-        return
-
-    pending = INTERVIEW_CONFIRMATIONS.get(chat_id)
-    if pending:
-        safe_delete_message(chat_id, message.message_id)
-        if normalize_interview_answer(message.text) != "готов":
-            sent = send_fresh_message(
-                chat_id,
-                "Для начала обзвона напишите слово «Готов».",
-                reply_markup=interview_confirmation_keyboard(),
-                old_message_id=pending.get("message_id"),
-            )
-            pending["message_id"] = sent.message_id
-            return
-
-        INTERVIEW_CONFIRMATIONS.pop(chat_id, None)
-        session = start_interview_session(
-            chat_id,
-            pending["level"],
-            pending.get("organization"),
-        )
-        session["last_message_id"] = pending.get("message_id")
-        if len(session["questions"]) < INTERVIEW_QUESTION_COUNT:
-            send_fresh_message(
-                chat_id,
-                "Недостаточно правил для полного обзвона.",
-                old_message_id=session.get("last_message_id"),
-            )
-            INTERVIEW_SESSIONS.pop(chat_id, None)
-        else:
-            send_interview_question(chat_id, session)
-        return
-
-    session = INTERVIEW_SESSIONS.get(chat_id)
-    if not session:
-        return
-
-    # Удаляем ответ пользователя до отправки следующего состояния обзвона.
-    safe_delete_message(chat_id, message.message_id)
-    process_interview_answer(chat_id, session, message.text)
 
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
     try:
-        action = call.data.split(":")
+        data = call.data or ""
+        action = data.split(":")
         is_answer = len(action) == 5 and action[0] == "interview" and action[1] == "answer"
         if not is_answer:
-            bot.answer_callback_query(call.id)
+            safe_answer_callback(call)
 
-        if call.data == "menu:home":
-            INTERVIEW_CONFIRMATIONS.pop(call.message.chat.id, None)
-            AI_SESSIONS.pop(call.message.chat.id, None)
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-            show_home(call.message.chat.id)
+        chat_id = call.message.chat.id
+
+        if data == "menu:home":
+            INTERVIEW_CONFIRMATIONS.pop(chat_id, None)
+            INTERVIEW_SESSIONS.pop(chat_id, None)
+            AI_SESSIONS.pop(chat_id, None)
+            safe_delete_message(chat_id, call.message.message_id)
+            show_home(chat_id)
             return
 
-        if call.data == "menu:ai_help":
-            INTERVIEW_CONFIRMATIONS.pop(call.message.chat.id, None)
-            INTERVIEW_SESSIONS.pop(call.message.chat.id, None)
-            AI_SESSIONS[call.message.chat.id] = []
-            ai_help_text = (
+        if data == "menu:ai_help":
+            INTERVIEW_CONFIRMATIONS.pop(chat_id, None)
+            INTERVIEW_SESSIONS.pop(chat_id, None)
+            AI_SESSIONS[chat_id] = []
+            render_callback_message(
+                call,
                 "<b>ИИ помощь</b>\n\n"
                 "Напиши сообщение, и Gemini ответит на него.\n"
-                "Диалог будет отдельным от обзвона."
+                "Диалог будет отдельным от обзвона.",
+                ai_help_keyboard(),
             )
-            if getattr(call.message, "content_type", "") == "photo":
-                bot.delete_message(call.message.chat.id, call.message.message_id)
-                bot.send_message(
-                    call.message.chat.id,
-                    ai_help_text,
-                    reply_markup=ai_help_keyboard(),
-                    parse_mode="HTML",
-                )
-            else:
-                bot.edit_message_text(
-                    ai_help_text,
-                    call.message.chat.id,
-                    call.message.message_id,
-                    reply_markup=ai_help_keyboard(),
-                    parse_mode="HTML",
-                )
             return
 
-        if call.data == "menu:interview":
-            INTERVIEW_CONFIRMATIONS.pop(call.message.chat.id, None)
-            AI_SESSIONS.pop(call.message.chat.id, None)
-            interview_text = "<b>Текстовый обзвон</b>\n\nВыберите организацию:"
-            if getattr(call.message, "content_type", "") == "photo":
-                bot.delete_message(call.message.chat.id, call.message.message_id)
-                bot.send_message(
-                    call.message.chat.id,
-                    interview_text,
-                    reply_markup=interview_keyboard(),
-                    parse_mode="HTML",
-                )
-            else:
-                bot.edit_message_text(
-                    interview_text,
-                    call.message.chat.id,
-                    call.message.message_id,
-                    reply_markup=interview_keyboard(),
-                    parse_mode="HTML",
-                )
+        if data == "menu:interview":
+            INTERVIEW_CONFIRMATIONS.pop(chat_id, None)
+            AI_SESSIONS.pop(chat_id, None)
+            render_callback_message(
+                call,
+                "<b>Текстовый обзвон</b>\n\nВыберите организацию:",
+                interview_keyboard(),
+            )
             return
 
         if len(action) == 5 and action[0] == "interview" and action[1] == "answer":
             if action[4] in {"yes", "no"}:
-                handle_interview_answer(call, action[2], int(action[3]), action[4])
+                try:
+                    handle_interview_answer(call, action[2], int(action[3]), action[4])
+                except (TypeError, ValueError):
+                    safe_answer_callback(call, "Некорректный ответ", show_alert=True)
             return
 
-        if call.data == "interview:cancel":
-            INTERVIEW_CONFIRMATIONS.pop(call.message.chat.id, None)
-            INTERVIEW_SESSIONS.pop(call.message.chat.id, None)
-            bot.edit_message_text(
+        if data == "interview:cancel":
+            INTERVIEW_CONFIRMATIONS.pop(chat_id, None)
+            INTERVIEW_SESSIONS.pop(chat_id, None)
+            render_callback_message(
+                call,
                 "<b>Обзвон завершён досрочно.</b>",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=interview_result_keyboard("deputy"),
-                parse_mode="HTML",
+                interview_result_keyboard("deputy"),
             )
             return
 
@@ -1405,29 +1363,25 @@ def handle_callback(call):
             organization_key = action[2] if len(action) == 4 else None
             level = action[3] if len(action) == 4 else action[2]
             if level in {"deputy", "leader"}:
-                INTERVIEW_SESSIONS.pop(call.message.chat.id, None)
-                INTERVIEW_CONFIRMATIONS[call.message.chat.id] = {
+                INTERVIEW_SESSIONS.pop(chat_id, None)
+                INTERVIEW_CONFIRMATIONS[chat_id] = {
                     "level": level,
                     "organization": organization_key,
                     "message_id": call.message.message_id,
                 }
-                bot.edit_message_text(
+                render_callback_message(
+                    call,
                     "<b>Вы уверены?</b>\n\n"
                     "Для прохождения обзвона напишите слово «Готов».",
-                    call.message.chat.id,
-                    call.message.message_id,
-                    reply_markup=interview_confirmation_keyboard(),
-                    parse_mode="HTML",
+                    interview_confirmation_keyboard(),
                 )
             return
 
         if len(action) == 3 and action[0] == "interview" and action[1] == "levelback":
-            bot.edit_message_text(
+            render_callback_message(
+                call,
                 "<b>Текстовый обзвон</b>\n\nВыберите сложность обзвона:",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=interview_level_keyboard(),
-                parse_mode="HTML",
+                interview_level_keyboard(),
             )
             return
 
@@ -1446,75 +1400,58 @@ def handle_callback(call):
             }
             organization = organization_names.get(action[1])
             if organization and action[1] in INTERVIEW_LEVEL_KEYS:
-                bot.edit_message_text(
+                render_callback_message(
+                    call,
                     f"<b>{organization}</b>\n\nВыберите сложность обзвона:",
-                    call.message.chat.id,
-                    call.message.message_id,
-                    reply_markup=interview_level_keyboard(action[1]),
-                    parse_mode="HTML",
+                    interview_level_keyboard(action[1]),
                 )
             elif organization:
-                bot.edit_message_text(
+                back_keyboard = types.InlineKeyboardMarkup().add(
+                    types.InlineKeyboardButton("⬅️ Назад", callback_data="menu:interview")
+                )
+                render_callback_message(
+                    call,
                     f"<b>{organization}</b>\n\nТекстовый обзвон для этой организации пока не настроен.",
-                    call.message.chat.id,
-                    call.message.message_id,
-                    reply_markup=types.InlineKeyboardMarkup().add(
-                        types.InlineKeyboardButton("⬅️ Назад", callback_data="menu:interview")
-                    ),
-                    parse_mode="HTML",
+                    back_keyboard,
                 )
             return
 
-        if call.data == "menu:rules":
-            rules_text = "<b>Правила</b>\n\nВыберите раздел:"
-            if getattr(call.message, "content_type", "") == "photo":
-                bot.delete_message(call.message.chat.id, call.message.message_id)
-                bot.send_message(
-                    call.message.chat.id,
-                    rules_text,
-                    reply_markup=rules_keyboard(),
-                    parse_mode="HTML",
-                )
-            else:
-                bot.edit_message_text(
-                    rules_text,
-                    call.message.chat.id,
-                    call.message.message_id,
-                    reply_markup=rules_keyboard(),
-                    parse_mode="HTML",
-                )
-            return
-
-        if call.data == "menu:ghetto":
-            bot.edit_message_text(
-                "<b>Гетто</b>\n\nВыберите категорию правил:",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=ghetto_keyboard(),
-                parse_mode="HTML",
+        if data == "menu:rules":
+            render_callback_message(
+                call,
+                "<b>Правила</b>\n\nВыберите раздел:",
+                rules_keyboard(),
             )
             return
 
-        if call.data == "menu:goss":
-            bot.edit_message_text(
+        if data == "menu:ghetto":
+            render_callback_message(
+                call,
+                "<b>Гетто</b>\n\nВыберите категорию правил:",
+                ghetto_keyboard(),
+            )
+            return
+
+        if data == "menu:goss":
+            render_callback_message(
+                call,
                 "<b>Госс</b>\n\nВыберите категорию правил:",
-                call.message.chat.id,
-                call.message.message_id,
-                reply_markup=goss_keyboard(),
-                parse_mode="HTML",
+                goss_keyboard(),
             )
             return
 
         if len(action) == 3 and action[0] == "section" and action[1] in RULES:
-            show_section(call, action[1], int(action[2]))
+            try:
+                show_section(call, action[1], int(action[2]))
+            except (TypeError, ValueError):
+                safe_answer_callback(call, "Некорректная страница", show_alert=True)
             return
+
+        safe_answer_callback(call, "Кнопка устарела. Откройте меню заново.", show_alert=True)
 
     except Exception:
         logger.exception("Ошибка обработки callback")
-        try:
-            bot.answer_callback_query(call.id, "Не удалось открыть раздел", show_alert=True)
-        except Exception:
-            pass
+        safe_answer_callback(call, "Не удалось открыть раздел", show_alert=True)
 
 
 def configure_bot_commands():
