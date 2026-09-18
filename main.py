@@ -23,7 +23,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
+TOKEN = (
+    os.environ.get("TELEGRAM_BOT_TOKEN")
+    or os.environ.get("TELEGRAM_TOKEN")
+    or os.environ.get("BOT_TOKEN")
+)
 if not TOKEN:
     raise RuntimeError("Укажите TELEGRAM_BOT_TOKEN или BOT_TOKEN в Environment Variables Render")
 
@@ -1466,6 +1470,17 @@ def run_web_server():
 
 
 if __name__ == "__main__":
+    try:
+        bot_info = bot.get_me()
+        logger.info(
+            "Telegram authentication successful: @%s (id=%s)",
+            bot_info.username,
+            bot_info.id,
+        )
+    except Exception:
+        logger.exception("Telegram authentication failed. Check TELEGRAM_BOT_TOKEN in Render.")
+        raise
+
     configure_bot_commands()
     webhook_url = os.environ.get("TELEGRAM_WEBHOOK_URL")
     if webhook_url:
