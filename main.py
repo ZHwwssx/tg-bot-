@@ -14,6 +14,7 @@ import urllib.request
 import telebot
 from flask import Flask, request
 from telebot import types
+from all_mentions import register_group_mentions
 
 
 logging.basicConfig(
@@ -35,6 +36,7 @@ AI_API_KEY = os.environ.get("AI_API_KEY")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
+register_group_mentions(bot)
 app = Flask(__name__)
 
 WELCOME_IMAGE_PATH = os.path.join(BASE_DIR, "welcome.jpg")
