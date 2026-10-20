@@ -77,7 +77,7 @@ def user_record(user):
         return None
     first_name = " ".join((getattr(user, "first_name", None) or "").split())
     if not first_name:
-        first_name = "Участник"
+        first_name = "Ð£ÑÐ°ÑÑÐ½Ð¸Ðº"
     return {
         "id": int(user_id),
         "is_bot": False,
@@ -121,11 +121,11 @@ def display_name(user):
     name = " ".join(
         part for part in (user.get("first_name"), user.get("last_name")) if part
     )
-    return " ".join(name.split()) or "Участник"
+    return " ".join(name.split()) or "Ð£ÑÐ°ÑÑÐ½Ð¸Ðº"
 
 
 def build_mention_chunks(users):
-    prefix = "📣 @All\n"
+    prefix = "ð£ @All\n"
     prefix_units = utf16_units(prefix)
     chunks = []
     text = prefix
@@ -191,7 +191,7 @@ def handle_group_message(message):
     if not users:
         bot.send_message(
             chat.id,
-            "Пока некого отметить: я ещё не видел участников этой группы.",
+            "ÐÐ¾ÐºÐ° Ð½ÐµÐºÐ¾Ð³Ð¾ Ð¾ÑÐ¼ÐµÑÐ¸ÑÑ: Ñ ÐµÑÑ Ð½Ðµ Ð²Ð¸Ð´ÐµÐ» ÑÑÐ°ÑÑÐ½Ð¸ÐºÐ¾Ð² ÑÑÐ¾Ð¹ Ð³ÑÑÐ¿Ð¿Ñ.",
             parse_mode="",
             reply_to_message_id=message.message_id,
         )
@@ -220,17 +220,13 @@ def start_message(message):
     if username:
         keyboard.add(
             types.InlineKeyboardButton(
-                "➕ Добавить в группу",
+                "â ÐÐ¾Ð±Ð°Ð²Ð¸ÑÑ Ð² Ð³ÑÑÐ¿Ð¿Ñ",
                 url="https://t.me/" + username + "?startgroup=add",
             )
         )
     bot.send_message(
         message.chat.id,
-        "Привет! Добавь меня в группу и напиши там @all — я отмечу участников, которых уже видел.\n\n"
-        "Чтобы я видел обычные сообщения, отключи Privacy Mode у @BotFather через /setprivacy → Disable, "
-        "затем заново добавь меня в группу. Также можно выдать мне права администратора.\n\n"
-        "Telegram не показывает ботам полный список участников: я смогу отметить только тех, "
-        "кто напишет в группе или вступит после добавления бота.",
+        "Привет! Добавь меня в группу и напиши там @all — я отмечу участников.",
         reply_markup=keyboard,
         parse_mode="",
     )
@@ -242,7 +238,7 @@ def group_message_handler(message):
 
 
 def configure_bot_commands():
-    bot.set_my_commands([types.BotCommand("start", "Добавить бота в группу")])
+    bot.set_my_commands([types.BotCommand("start", "ÐÐ¾Ð±Ð°Ð²Ð¸ÑÑ Ð±Ð¾ÑÐ° Ð² Ð³ÑÑÐ¿Ð¿Ñ")])
 
 
 @app.get("/")
