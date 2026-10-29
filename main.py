@@ -1,6 +1,9 @@
 import html
 import logging
 import os
+import threading
+from pathlib import Path
+from urllib.request import urlopen
 
 import telebot
 from telebot.types import (
@@ -20,7 +23,6 @@ bot = telebot.TeleBot(TOKEN)
 
 STORE_CHANNEL_URL = "https://t.me/Gambio_mk"
 TERMS_URL = "https://telegra.ph/Usloviya-ispolzovaniya-i-vozvrata-05-19"
-PRODUCT_VIDEO_FILE_ID = os.environ.get("PRODUCT_VIDEO_FILE_ID", "").strip()
 PRODUCT_DESCRIPTION = [
     "Длинные автослайды в бок",
     "Длинные вперед",
@@ -30,6 +32,59 @@ PRODUCT_DESCRIPTION = [
     "+с",
     "Отводы",
 ]
+
+PRODUCT_VIDEO_PART_COUNT = 12
+PRODUCT_VIDEO_SIZE = 11_463_549
+PRODUCT_VIDEO_PART_URL_TEMPLATE = (
+    "https://raw.githubusercontent.com/ZHwwssx/tg-bot-/main/"
+    "assets/product-loka/part-{part:02d}.bin"
+)
+PRODUCT_VIDEO_CACHE_PATH = Path("/tmp/product-loka.mp4")
+PRODUCT_VIDEO_DOWNLOAD_LOCK = threading.Lock()
+
+
+def ensure_product_video_file() -> Path:
+    with PRODUCT_VIDEO_DOWNLOAD_LOCK:
+        if PRODUCT_VIDEO_CACHE_PATH.is_file():
+            try:
+                if PRODUCT_VIDEO_CACHE_PATH.stat().st_size == PRODUCT_VIDEO_SIZE:
+                    return PRODUCT_VIDEO_CACHE_PATH
+            except OSError:
+                pass
+
+        temporary_path = PRODUCT_VIDEO_CACHE_PATH.with_suffix(".download")
+        try:
+            with temporary_path.open("wb") as video_file:
+                for part_number in range(1, PRODUCT_VIDEO_PART_COUNT + 1):
+                    url = PRODUCT_VIDEO_PART_URL_TEMPLATE.format(part=part_number)
+                    with urlopen(url, timeout=30) as response:
+                        while True:
+                            chunk = response.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            video_file.write(chunk)
+
+            if temporary_path.stat().st_size != PRODUCT_VIDEO_SIZE:
+                raise RuntimeError("Downloaded product video has an unexpected size.")
+            temporary_path.replace(PRODUCT_VIDEO_CACHE_PATH)
+        except Exception:
+            temporary_path.unlink(missing_ok=True)
+            raise
+
+    return PRODUCT_VIDEO_CACHE_PATH
+
+
+def send_product_video(chat_id: int, text: str, keyboard, parse_mode):
+    video_path = ensure_product_video_file()
+    with video_path.open("rb") as video_file:
+        return bot.send_video(
+            chat_id,
+            video_file,
+            caption=text,
+            reply_markup=keyboard,
+            parse_mode=parse_mode,
+        )
+
 
 # Keep the currently displayed bot message per chat so navigation can edit or
 # remove it instead of leaving a stack of old menus in the conversation.
@@ -186,14 +241,17 @@ def send_page(chat_id: int, page: str, user=None, remove_reply_keyboard: bool = 
             reply_markup=ReplyKeyboardRemove(),
         )
 
-    if page == "product_loka" and PRODUCT_VIDEO_FILE_ID:
-        sent = bot.send_video(
-            chat_id,
-            PRODUCT_VIDEO_FILE_ID,
-            caption=text,
-            reply_markup=keyboard,
-            parse_mode=parse_mode,
-        )
+    if page == "product_loka":
+        try:
+            sent = send_product_video(chat_id, text, keyboard, parse_mode)
+        except Exception:
+            logger.exception("Could not send the product video; showing product text instead.")
+            sent = bot.send_message(
+                chat_id,
+                text,
+                reply_markup=keyboard,
+                parse_mode=parse_mode,
+            )
     else:
         sent = bot.send_message(
             chat_id,
@@ -221,12 +279,12 @@ def edit_page(chat_id: int, message_id: int, page: str, user=None):
         remember_bot_message(chat_id, message_id)
         return send_page(chat_id, "home", user)
 
-    if PRODUCT_VIDEO_FILE_ID and page == "product_loka":
+    if page == "product_loka":
         remember_bot_message(chat_id, message_id)
         cleanup_bot_messages(chat_id)
         return send_page(chat_id, page, user)
 
-    if PRODUCT_VIDEO_FILE_ID and current_page_by_chat.get(chat_id) == "product_loka":
+    if current_page_by_chat.get(chat_id) == "product_loka":
         remember_bot_message(chat_id, message_id)
         cleanup_bot_messages(chat_id)
         return send_page(chat_id, page, user)
@@ -286,21 +344,6 @@ def cmd_back(message):
         )
     else:
         edit_page(chat_id, last_message_id, target_page, message.from_user)
-
-
-@bot.message_handler(content_types=["video"])
-def handle_video_upload(message):
-    if message.chat.type != "private" or not message.video:
-        return
-
-    file_id = html.escape(message.video.file_id)
-    bot.reply_to(
-        message,
-        "Добавьте в Render переменную <code>PRODUCT_VIDEO_FILE_ID</code> "
-        "со значением ниже, затем перезапустите Background Worker:\n\n"
-        f"<code>{file_id}</code>",
-        parse_mode="HTML",
-    )
 
 
 @bot.message_handler(content_types=["text"])
