@@ -6,8 +6,6 @@ import telebot
 from telebot.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    KeyboardButton,
-    ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
 )
 
@@ -39,13 +37,13 @@ bot_messages_by_chat: dict[int, list[int]] = {}
 current_page_by_chat: dict[int, str] = {}
 
 
-def main_reply_keyboard() -> ReplyKeyboardMarkup:
-    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
-    keyboard.row(KeyboardButton("🛍️Каталог"))
-    keyboard.row(KeyboardButton("🏠 О магазине"))
-    keyboard.row(KeyboardButton("👨‍💻 Условия использования"))
-    keyboard.row(KeyboardButton("👤 Профиль"))
-    return keyboard
+def main_inline_keyboard() -> InlineKeyboardMarkup:
+    return inline_keyboard(
+        ("🛍️Каталог", "catalog"),
+        ("🏠 О магазине", "about"),
+        ("👨‍💻 Условия использования", "terms"),
+        ("👤 Профиль", "profile"),
+    )
 
 
 def inline_keyboard(*buttons: tuple[str, str]) -> InlineKeyboardMarkup:
@@ -70,19 +68,12 @@ def page_content(page: str, user=None):
     if page == "home":
         return (
             "👋 Добро пожаловать в 𝐆𝐚𝐦𝐛𝐢𝐨 𝐒𝐡𝐨𝐩!\nВыберите нужный пункт в меню ниже 👇",
-            main_reply_keyboard(),
+            main_inline_keyboard(),
             None,
         )
 
     if page == "catalog":
-        return (
-            "🛍️ <b>Каталог</b>\nВыберите товар:",
-            inline_keyboard(
-                ("Лока сборка", "product:loka"),
-                ("🔙 Назад", "back:home"),
-            ),
-            "HTML",
-        )
+        page = "product_loka"
 
     if page == "product_loka":
         description = "\n".join(f"• {item}" for item in PRODUCT_DESCRIPTION)
@@ -91,7 +82,7 @@ def page_content(page: str, user=None):
             "Создатель: Gambio\n\n"
             f"Описание:\n{description}\n\n"
             "💰 Цена: 100₽ // 150⭐️",
-            inline_keyboard(("🔙 Назад", "back:catalog")),
+            inline_keyboard(("🔙 Назад", "back:home")),
             "HTML",
         )
 
@@ -180,6 +171,10 @@ def cleanup_bot_messages(chat_id: int, keep_message_id: int | None = None) -> No
 
 
 def send_page(chat_id: int, page: str, user=None, remove_reply_keyboard: bool = False):
+    if page == "catalog":
+        page = "product_loka"
+    if page == "home":
+        remove_reply_keyboard = True
     cleanup_bot_messages(chat_id)
     text, keyboard, parse_mode = page_content(page, user)
     removal_message = None
@@ -220,6 +215,8 @@ def send_page(chat_id: int, page: str, user=None, remove_reply_keyboard: bool = 
 
 
 def edit_page(chat_id: int, message_id: int, page: str, user=None):
+    if page == "catalog":
+        page = "product_loka"
     if page == "home":
         remember_bot_message(chat_id, message_id)
         return send_page(chat_id, "home", user)
@@ -257,7 +254,7 @@ def edit_page(chat_id: int, message_id: int, page: str, user=None):
 def page_before(page: str) -> str:
     return {
         "catalog": "home",
-        "product_loka": "catalog",
+        "product_loka": "home",
         "about": "home",
         "terms": "home",
         "profile": "home",
@@ -309,7 +306,7 @@ def handle_video_upload(message):
 @bot.message_handler(content_types=["text"])
 def handle_text(message):
     pages = {
-        "🛍️Каталог": "catalog",
+        "🛍️Каталог": "product_loka",
         "🏠 О магазине": "about",
         "👨‍💻 Условия использования": "terms",
         "👤 Профиль": "profile",
@@ -323,7 +320,7 @@ def handle_text(message):
 def callback_query(call):
     try:
         pages = {
-            "catalog": "catalog",
+            "catalog": "product_loka",
             "product:loka": "product_loka",
             "about": "about",
             "terms": "terms",
@@ -334,7 +331,9 @@ def callback_query(call):
             "back_to_profile": "profile",
         }
 
-        if call.data.startswith("back:"):
+        if call.data == "back:catalog":
+            page = "home"
+        elif call.data.startswith("back:"):
             page = call.data.split(":", 1)[1]
         else:
             page = pages.get(call.data)
