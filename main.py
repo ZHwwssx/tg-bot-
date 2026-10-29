@@ -197,6 +197,13 @@ def page_content(page: str, user=None):
             None,
         )
 
+    if page == "support":
+        return (
+            "🚨 <b>Поддержка</b>\n\n"
+            "Предложение по улучшению // Тех.Поддержка - @pavell_durrovvv",
+            inline_keyboard(("🔙 Назад", "back:home")),
+            "HTML",
+        )
     raise ValueError(f"Unknown page: {page}")
 
 
