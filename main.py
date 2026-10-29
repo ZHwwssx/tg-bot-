@@ -287,7 +287,6 @@ def handle_text(message):
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
     try:
-        bot.answer_callback_query(call.id)
         pages = {
             "catalog": "catalog",
             "product:loka": "product_loka",
@@ -317,8 +316,16 @@ def callback_query(call):
             "topup_balance",
         }
         if page not in allowed_pages:
-            bot.answer_callback_query(call.id, "Кнопка устарела. Нажмите /start.", show_alert=True)
+            try:
+                bot.answer_callback_query(call.id, "Кнопка устарела. Нажмите /start.", show_alert=True)
+            except Exception:
+                logger.info("Could not acknowledge an expired bot button.")
             return
+
+        try:
+            bot.answer_callback_query(call.id)
+        except Exception:
+            logger.info("Could not acknowledge a bot button; continuing.")
 
         edit_page(
             call.message.chat.id,
