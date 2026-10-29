@@ -15,13 +15,24 @@ from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton
 )
 
-# ============ НАСТРОЙКИ (из Environment Variables на Render) ============
+# Веб-сервер для Webhook и пингов
+from aiohttp import web
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+
+# ============ НАСТРОЙКИ ============
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 PASSWORD = os.getenv("PASSWORD", "7374")
 DB_PATH = os.getenv("DB_PATH", "applications.db")
 
+# Render автоматически выдает переменную RENDER_EXTERNAL_URL
+# (например, https://tg-bot-k8kg.onrender.com)
+WEBHOOK_HOST = os.getenv("RENDER_EXTERNAL_URL", "https://tg-bot-k8kg.onrender.com")
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+
 logging.basicConfig(level=logging.INFO)
+router = Router()
 
 # ============ БАЗА ДАННЫХ ============
 def init_db():
@@ -49,7 +60,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-
 def save_application(user_id, username, data: dict) -> int:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -71,7 +81,6 @@ def save_application(user_id, username, data: dict) -> int:
     conn.close()
     return app_id
 
-
 def get_all_pending():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -79,7 +88,6 @@ def get_all_pending():
     rows = cur.fetchall()
     conn.close()
     return rows
-
 
 def get_by_id(app_id):
     conn = sqlite3.connect(DB_PATH)
@@ -89,7 +97,6 @@ def get_by_id(app_id):
     conn.close()
     return row
 
-
 def set_status(app_id, status: str):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -97,11 +104,7 @@ def set_status(app_id, status: str):
     conn.commit()
     conn.close()
 
-
-# ============ РОУТЕР И СОСТОЯНИЯ ============
-router = Router()
-
-
+# ============ СОСТОЯНИЯ ============
 class Form(StatesGroup):
     nickname = State()
     lvl = State()
@@ -114,71 +117,48 @@ class Form(StatesGroup):
     experience = State()
     why_us = State()
 
-
 class AdminAuth(StatesGroup):
     waiting_password = State()
-
 
 # ============ КЛАВИАТУРЫ ============
 def main_menu_kb():
     return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Подать анкету")],
-            [KeyboardButton(text="Анкеты")],
-        ],
+        keyboard=[[KeyboardButton(text="Подать анкету")], [KeyboardButton(text="Анкеты")]],
         resize_keyboard=True
     )
-
 
 def cancel_kb():
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="Отмена")]],
-        resize_keyboard=True
-    )
-
+    return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Отмена")]], resize_keyboard=True)
 
 def back_next_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="⬅️ Назад", callback_data="back"),
-            InlineKeyboardButton(text="Далее ➡️", callback_data="next"),
-        ]
-    ])
-
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="back"),
+        InlineKeyboardButton(text="Далее ➡️", callback_data="next"),
+    ]])
 
 def approve_reject_kb(app_id: int):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve:{app_id}"),
-            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject:{app_id}"),
-        ]
-    ])
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve:{app_id}"),
+        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject:{app_id}"),
+    ]])
 
-
-# ============ СТАРТ ============
+# ============ ХЕНДЛЕРЫ (БЕЗ ИЗМЕНЕНИЙ) ============
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     name = message.from_user.username or message.from_user.first_name
-    await message.answer(
-        f"Привет! ({name})\nТы тут чтобы поспать в клан NS!",
-        reply_markup=main_menu_kb()
-    )
-
+    await message.answer(f"Привет! ({name})\nТы тут чтобы поспать в клан NS!", reply_markup=main_menu_kb())
 
 @router.message(F.text == "Отмена")
 async def cancel_any(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("Заполнение анкеты отменено.", reply_markup=main_menu_kb())
 
-
-# ============ ПОДАЧА АНКЕТЫ — ЧАСТЬ 1 ============
 @router.message(F.text == "Подать анкету")
 async def start_form(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("Твой Nickname:", reply_markup=cancel_kb())
     await state.set_state(Form.nickname)
-
 
 @router.message(Form.nickname)
 async def form_nickname(message: Message, state: FSMContext):
@@ -186,13 +166,11 @@ async def form_nickname(message: Message, state: FSMContext):
     await message.answer("Твой Lvl:")
     await state.set_state(Form.lvl)
 
-
 @router.message(Form.lvl)
 async def form_lvl(message: Message, state: FSMContext):
     await state.update_data(lvl=message.text)
     await message.answer("Есть что-то по донату? (подробно):")
     await state.set_state(Form.donate)
-
 
 @router.message(Form.donate)
 async def form_donate(message: Message, state: FSMContext):
@@ -200,13 +178,11 @@ async def form_donate(message: Message, state: FSMContext):
     await message.answer("Был ли ранее в кланах? Если да, то почему ушёл (если нет: -):")
     await state.set_state(Form.previous_clans)
 
-
 @router.message(Form.previous_clans)
 async def form_prev(message: Message, state: FSMContext):
     await state.update_data(previous_clans=message.text)
     await message.answer("Готов пройти проверку на стрельбу?:")
     await state.set_state(Form.shooting_test)
-
 
 @router.message(Form.shooting_test)
 async def form_shoot(message: Message, state: FSMContext):
@@ -214,15 +190,10 @@ async def form_shoot(message: Message, state: FSMContext):
     await message.answer("Принимаешь ли правила клана?")
     await state.set_state(Form.rules_accept)
 
-
 @router.message(Form.rules_accept)
 async def form_rules(message: Message, state: FSMContext):
     await state.update_data(rules_accept=message.text)
-    await message.answer(
-        "Часть 1 заполнена. Нажми «Далее» чтобы продолжить или «Назад» чтобы начать заново.",
-        reply_markup=back_next_kb()
-    )
-
+    await message.answer("Часть 1 заполнена. Нажми «Далее» чтобы продолжить.", reply_markup=back_next_kb())
 
 @router.callback_query(F.data == "next")
 async def go_next(call: CallbackQuery, state: FSMContext):
@@ -231,7 +202,6 @@ async def go_next(call: CallbackQuery, state: FSMContext):
     await state.set_state(Form.real_name)
     await call.answer()
 
-
 @router.callback_query(F.data == "back")
 async def go_back(call: CallbackQuery, state: FSMContext):
     await call.message.edit_reply_markup(reply_markup=None)
@@ -239,14 +209,11 @@ async def go_back(call: CallbackQuery, state: FSMContext):
     await state.set_state(Form.nickname)
     await call.answer()
 
-
-# ============ ПОДАЧА АНКЕТЫ — ЧАСТЬ 2 ============
 @router.message(Form.real_name)
 async def form_name(message: Message, state: FSMContext):
     await state.update_data(real_name=message.text)
     await message.answer("Возраст:")
     await state.set_state(Form.age)
-
 
 @router.message(Form.age)
 async def form_age(message: Message, state: FSMContext):
@@ -254,13 +221,11 @@ async def form_age(message: Message, state: FSMContext):
     await message.answer("Стаж игры:")
     await state.set_state(Form.experience)
 
-
 @router.message(Form.experience)
 async def form_exp(message: Message, state: FSMContext):
     await state.update_data(experience=message.text)
     await message.answer("Почему именно к нам?")
     await state.set_state(Form.why_us)
-
 
 @router.message(Form.why_us)
 async def form_finish(message: Message, state: FSMContext):
@@ -272,22 +237,13 @@ async def form_finish(message: Message, state: FSMContext):
     username = f"@{user.username}" if user.username else f"(id: {user.id})"
     app_id = save_application(user.id, username, data)
 
-    await message.answer(
-        "Анкета отправлена на проверку. Терпения 😘",
-        reply_markup=main_menu_kb()
-    )
+    await message.answer("Анкета отправлена на проверку. Терпения 😘", reply_markup=main_menu_kb())
 
     try:
-        await message.bot.send_message(
-            ADMIN_ID,
-            f"📨 Новая анкета #{app_id} от {username}\n"
-            f"Зайди в раздел «Анкеты» в боте."
-        )
+        await message.bot.send_message(ADMIN_ID, f"📨 Новая анкета #{app_id} от {username}\nЗайди в раздел «Анкеты» в боте.")
     except Exception as e:
         logging.warning(f"Не удалось уведомить админа: {e}")
 
-
-# ============ РАЗДЕЛ "АНКЕТЫ" ============
 @router.message(F.text == "Анкеты")
 async def admin_section(message: Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
@@ -295,7 +251,6 @@ async def admin_section(message: Message, state: FSMContext):
         return
     await message.answer("Введите пароль:")
     await state.set_state(AdminAuth.waiting_password)
-
 
 @router.message(AdminAuth.waiting_password)
 async def check_password(message: Message, state: FSMContext):
@@ -316,7 +271,6 @@ async def check_password(message: Message, state: FSMContext):
     await message.answer(f"🔓 Авторизация успешна. Анкет: {len(apps)}")
     for app in apps:
         await send_application_card(message.bot, message.chat.id, app)
-
 
 async def send_application_card(bot: Bot, chat_id: int, app):
     (app_id, user_id, username, nickname, lvl, donate, prev_clans,
@@ -339,13 +293,8 @@ async def send_application_card(bot: Bot, chat_id: int, app):
         f"• Стаж: {exp}\n"
         f"• Почему к нам: {why_us}"
     )
-    await bot.send_message(
-        chat_id, text, parse_mode="HTML",
-        reply_markup=approve_reject_kb(app_id)
-    )
+    await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=approve_reject_kb(app_id))
 
-
-# ============ ОДОБРИТЬ / ОТКЛОНИТЬ ============
 @router.callback_query(F.data.startswith("approve:"))
 async def approve_app(call: CallbackQuery):
     if call.from_user.id != ADMIN_ID:
@@ -359,20 +308,12 @@ async def approve_app(call: CallbackQuery):
 
     set_status(app_id, "approved")
     try:
-        await call.bot.send_message(
-            app[1],
-            "Вашу анкету одобрили. Ожидайте пока лидер вам отпишет в личку. "
-            "С уважением клан NS 🫶"
-        )
+        await call.bot.send_message(app[1], "Вашу анкету одобрили. Ожидайте пока лидер вам отпишет в личку. С уважением клан NS 🫶")
     except Exception as e:
         logging.warning(f"Не смог написать {app[1]}: {e}")
 
-    await call.message.edit_text(
-        call.message.html_text + "\n\n✅ <b>ОДОБРЕНО</b>",
-        parse_mode="HTML"
-    )
+    await call.message.edit_text(call.message.html_text + "\n\n✅ <b>ОДОБРЕНО</b>", parse_mode="HTML")
     await call.answer("Одобрено")
-
 
 @router.callback_query(F.data.startswith("reject:"))
 async def reject_app(call: CallbackQuery):
@@ -387,34 +328,63 @@ async def reject_app(call: CallbackQuery):
 
     set_status(app_id, "rejected")
     try:
-        await call.bot.send_message(
-            app[1],
-            "К сожалению, вашу анкету отклонили. Спасибо за интерес к клану NS."
-        )
+        await call.bot.send_message(app[1], "К сожалению, вашу анкету отклонили. Спасибо за интерес к клану NS.")
     except Exception as e:
         logging.warning(f"Не смог написать {app[1]}: {e}")
 
-    await call.message.edit_text(
-        call.message.html_text + "\n\n❌ <b>ОТКЛОНЕНО</b>",
-        parse_mode="HTML"
-    )
+    await call.message.edit_text(call.message.html_text + "\n\n❌ <b>ОТКЛОНЕНО</b>", parse_mode="HTML")
     await call.answer("Отклонено")
 
 
-# ============ MAIN ============
-async def main():
+# ============ ЗАПУСК ВЕБ-СЕРВЕРА И БОТА ============
+async def on_startup(bot: Bot):
+    # Устанавливаем Webhook при запуске
+    await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
+    logging.info(f"Webhook установлен на {WEBHOOK_URL}")
+
+async def on_shutdown(bot: Bot):
+    # Удаляем Webhook при выключении
+    await bot.delete_webhook()
+    logging.info("Webhook удален")
+
+async def handle_ping(request):
+    # Этот ответ увидит UptimeRobot и поймет, что сервис жив
+    return web.Response(text="Bot is alive!")
+
+def main():
     if not BOT_TOKEN:
         raise SystemExit("❌ Не задан BOT_TOKEN в Environment Variables")
     if ADMIN_ID == 0:
         raise SystemExit("❌ Не задан ADMIN_ID в Environment Variables")
 
     init_db()
+
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
-    logging.info("Бот запущен")
-    await dp.start_polling(bot)
 
+    # Настройка событий запуска/остановки
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
+
+    # Создаем веб-приложение aiohttp
+    app = web.Application()
+
+    # Регистрируем путь для Webhook от Telegram
+    webhook_requests_handler = SimpleRequestHandler(dispatcher=dp, bot=bot)
+    webhook_requests_handler.register(app, path=WEBHOOK_PATH)
+
+    # Регистрируем путь для пингов UptimeRobot (главная страница)
+    app.router.add_get("/", handle_ping)
+
+    # Связываем aiogram и aiohttp
+    setup_application(app, dp, bot=bot)
+
+    # Render автоматически передает порт в переменную PORT
+    port = int(os.getenv("PORT", 8080))
+    
+    logging.info(f"Запуск веб-сервера на порту {port}")
+    web.run_app(app, host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
