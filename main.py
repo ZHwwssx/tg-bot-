@@ -1,3 +1,4 @@
+import os
 import telebot
 from telebot.types import (
     InlineKeyboardButton,
@@ -6,7 +7,9 @@ from telebot.types import (
     ReplyKeyboardMarkup,
 )
 
-TOKEN = "9158246587:AAEJM7FKR1AcL18K00FyT-qbTu-KppcDpNs"
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+if not TOKEN:
+    raise RuntimeError("Missing required environment variable: TELEGRAM_BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
 # 1. Главная постоянная клавиатура (снизу)
