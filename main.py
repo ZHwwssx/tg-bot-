@@ -97,6 +97,7 @@ def main_inline_keyboard() -> InlineKeyboardMarkup:
         ("🛍️Каталог", "catalog"),
         ("🏠 О магазине", "about"),
         ("👨‍💻 Условия использования", "terms"),
+        ("🚨 Поддержка", "support"),
         ("👤 Профиль", "profile"),
     )
 
