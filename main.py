@@ -1,427 +1,420 @@
-import html
+import asyncio
 import logging
 import os
-import threading
-from pathlib import Path
-from urllib.request import urlopen
+import sqlite3
+from datetime import datetime
 
-import telebot
-from telebot.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    ReplyKeyboardRemove,
+from aiogram import Bot, Dispatcher, F, Router
+from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import (
+    Message, CallbackQuery,
+    ReplyKeyboardMarkup, KeyboardButton,
+    InlineKeyboardMarkup, InlineKeyboardButton
 )
+
+# ============ НАСТРОЙКИ (из Environment Variables на Render) ============
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+PASSWORD = os.getenv("PASSWORD", "7374")
+DB_PATH = os.getenv("DB_PATH", "applications.db")
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("gambio_bot")
 
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-if not TOKEN:
-    raise RuntimeError("Missing required environment variable: TELEGRAM_BOT_TOKEN")
-
-bot = telebot.TeleBot(TOKEN)
-
-STORE_CHANNEL_URL = "https://t.me/Gambio_mk"
-TERMS_URL = "https://telegra.ph/Usloviya-ispolzovaniya-i-vozvrata-05-19"
-PRODUCT_DESCRIPTION = [
-    "Длинные автослайды в бок",
-    "Длинные вперед",
-    "Фаст вперед",
-    "Зажим",
-    "Орп",
-    "+с",
-    "Отводы",
-]
-
-PRODUCT_VIDEO_PART_COUNT = 12
-PRODUCT_VIDEO_SIZE = 11_463_549
-PRODUCT_VIDEO_PART_URL_TEMPLATE = (
-    "https://raw.githubusercontent.com/ZHwwssx/tg-bot-/main/"
-    "assets/product-loka/part-{part:02d}.bin"
-)
-PRODUCT_VIDEO_CACHE_PATH = Path("/tmp/product-loka.mp4")
-PRODUCT_VIDEO_DOWNLOAD_LOCK = threading.Lock()
-
-
-def ensure_product_video_file() -> Path:
-    with PRODUCT_VIDEO_DOWNLOAD_LOCK:
-        if PRODUCT_VIDEO_CACHE_PATH.is_file():
-            try:
-                if PRODUCT_VIDEO_CACHE_PATH.stat().st_size == PRODUCT_VIDEO_SIZE:
-                    return PRODUCT_VIDEO_CACHE_PATH
-            except OSError:
-                pass
-
-        temporary_path = PRODUCT_VIDEO_CACHE_PATH.with_suffix(".download")
-        try:
-            with temporary_path.open("wb") as video_file:
-                for part_number in range(1, PRODUCT_VIDEO_PART_COUNT + 1):
-                    url = PRODUCT_VIDEO_PART_URL_TEMPLATE.format(part=part_number)
-                    with urlopen(url, timeout=30) as response:
-                        while True:
-                            chunk = response.read(1024 * 1024)
-                            if not chunk:
-                                break
-                            video_file.write(chunk)
-
-            if temporary_path.stat().st_size != PRODUCT_VIDEO_SIZE:
-                raise RuntimeError("Downloaded product video has an unexpected size.")
-            temporary_path.replace(PRODUCT_VIDEO_CACHE_PATH)
-        except Exception:
-            temporary_path.unlink(missing_ok=True)
-            raise
-
-    return PRODUCT_VIDEO_CACHE_PATH
-
-
-def send_product_video(chat_id: int, text: str, keyboard, parse_mode):
-    video_path = ensure_product_video_file()
-    with video_path.open("rb") as video_file:
-        return bot.send_video(
-            chat_id,
-            video_file,
-            caption=text,
-            reply_markup=keyboard,
-            parse_mode=parse_mode,
+# ============ БАЗА ДАННЫХ ============
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS applications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            username TEXT,
+            nickname TEXT,
+            lvl TEXT,
+            donate TEXT,
+            previous_clans TEXT,
+            shooting_test TEXT,
+            rules_accept TEXT,
+            real_name TEXT,
+            age TEXT,
+            experience TEXT,
+            why_us TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at TEXT
         )
+    """)
+    conn.commit()
+    conn.close()
 
 
-# Keep the currently displayed bot message per chat so navigation can edit or
-# remove it instead of leaving a stack of old menus in the conversation.
-bot_messages_by_chat: dict[int, list[int]] = {}
-current_page_by_chat: dict[int, str] = {}
+def save_application(user_id, username, data: dict) -> int:
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO applications
+        (user_id, username, nickname, lvl, donate, previous_clans,
+         shooting_test, rules_accept, real_name, age, experience, why_us, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        user_id, username,
+        data.get("nickname"), data.get("lvl"), data.get("donate"),
+        data.get("previous_clans"), data.get("shooting_test"),
+        data.get("rules_accept"), data.get("real_name"),
+        data.get("age"), data.get("experience"), data.get("why_us"),
+        datetime.utcnow().isoformat()
+    ))
+    app_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return app_id
 
 
-def main_inline_keyboard() -> InlineKeyboardMarkup:
-    return inline_keyboard(
-        ("🛍️Каталог", "catalog"),
-        ("🏠 О магазине", "about"),
-        ("👨‍💻 Условия использования", "terms"),
-        ("🚨 Поддержка", "support"),
-        ("👤 Профиль", "profile"),
+def get_all_pending():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM applications WHERE status = 'pending' ORDER BY id DESC")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def get_by_id(app_id):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM applications WHERE id = ?", (app_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def set_status(app_id, status: str):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("UPDATE applications SET status = ? WHERE id = ?", (status, app_id))
+    conn.commit()
+    conn.close()
+
+
+# ============ РОУТЕР И СОСТОЯНИЯ ============
+router = Router()
+
+
+class Form(StatesGroup):
+    nickname = State()
+    lvl = State()
+    donate = State()
+    previous_clans = State()
+    shooting_test = State()
+    rules_accept = State()
+    real_name = State()
+    age = State()
+    experience = State()
+    why_us = State()
+
+
+class AdminAuth(StatesGroup):
+    waiting_password = State()
+
+
+# ============ КЛАВИАТУРЫ ============
+def main_menu_kb():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Подать анкету")],
+            [KeyboardButton(text="Анкеты")],
+        ],
+        resize_keyboard=True
     )
 
 
-def inline_keyboard(*buttons: tuple[str, str]) -> InlineKeyboardMarkup:
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    for label, callback_data in buttons:
-        keyboard.add(InlineKeyboardButton(label, callback_data=callback_data))
-    return keyboard
-
-
-def profile_text(user) -> str:
-    user_name = html.escape(user.full_name or "Пользователь")
-    user_id = user.id
-    return (
-        "👤 <b>Профиль</b>\n\n"
-        f"🥷 Имя: {user_name}\n"
-        f"🔑 ID: <code>{user_id}</code>\n"
-        "💰 Ваш баланс: 0 руб."
+def cancel_kb():
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="Отмена")]],
+        resize_keyboard=True
     )
 
 
-def page_content(page: str, user=None):
-    if page == "home":
-        return (
-            "👋 Добро пожаловать в 𝐆𝐚𝐦𝐛𝐢𝐨 𝐒𝐡𝐨𝐩!\nВыберите нужный пункт в меню ниже 👇",
-            main_inline_keyboard(),
-            None,
-        )
-
-    if page == "catalog":
-        page = "product_loka"
-
-    if page == "product_loka":
-        description = "\n".join(f"• {item}" for item in PRODUCT_DESCRIPTION)
-        return (
-            "🛍️ <b>Лока сборка</b>\n\n"
-            "Создатель: Gambio\n\n"
-            f"Описание:\n{description}\n\n"
-            "💰 Цена: 100₽ // 150⭐️",
-            inline_keyboard(("🔙 Назад", "back:home")),
-            "HTML",
-        )
-
-    if page == "about":
-        keyboard = InlineKeyboardMarkup(row_width=1)
-        keyboard.add(InlineKeyboardButton("📢 Посмотреть канал", url=STORE_CHANNEL_URL))
-        keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="back:home"))
-        return (
-            "🏠 Магазин: 𝐆𝐚𝐦𝐛𝐢𝐨 𝐒𝐡𝐨𝐩\n"
-            "⏰ Дата создания: 2026-10-27\n"
-            "📢 Нажмите кнопку ниже, чтобы перейти в канал.",
-            keyboard,
-            None,
-        )
-
-    if page == "terms":
-        keyboard = InlineKeyboardMarkup(row_width=1)
-        keyboard.add(InlineKeyboardButton("Открыть условия", url=TERMS_URL))
-        keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="back:home"))
-        return (
-            "Нажмите кнопку ниже, чтобы ознакомиться с условиями использования и возврата:",
-            keyboard,
-            None,
-        )
-
-    if page == "profile":
-        return (
-            profile_text(user),
-            inline_keyboard(
-                ("🛒 История заказов", "history_orders"),
-                ("💸 История пополнения", "history_topups"),
-                ("💰 Пополнить баланс", "topup_balance"),
-                ("🔙 Назад", "back:home"),
-            ),
-            "HTML",
-        )
-
-    if page == "history_orders":
-        return (
-            "🛒 <b>История заказов</b>\nВсего у Вас заказов: 0\n\nУ Вас пока нет заказов.",
-            inline_keyboard(("🔙 Назад", "back:profile")),
-            "HTML",
-        )
-
-    if page == "history_topups":
-        return (
-            "💸 <b>История пополнения</b>\nВсего у Вас пополнений: 0",
-            inline_keyboard(("🔙 Назад", "back:profile")),
-            "HTML",
-        )
-
-    if page == "topup_balance":
-        return (
-            "💰 Пополнить баланс\n\nДанный раздел пока не доступен.",
-            inline_keyboard(("🔙 Назад", "back:profile")),
-            None,
-        )
-
-    if page == "support":
-        return (
-            "🚨 <b>Поддержка</b>\n\n"
-            "Предложение по улучшению // Тех.Поддержка - @pavell_durrovvv",
-            inline_keyboard(("🔙 Назад", "back:home")),
-            "HTML",
-        )
-    raise ValueError(f"Unknown page: {page}")
+def back_next_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="back"),
+            InlineKeyboardButton(text="Далее ➡️", callback_data="next"),
+        ]
+    ])
 
 
-def remember_bot_message(chat_id: int, message_id: int) -> None:
-    messages = bot_messages_by_chat.setdefault(chat_id, [])
-    if message_id not in messages:
-        messages.append(message_id)
-    current_page_by_chat.setdefault(chat_id, "home")
+def approve_reject_kb(app_id: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve:{app_id}"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject:{app_id}"),
+        ]
+    ])
 
 
-def cleanup_bot_messages(chat_id: int, keep_message_id: int | None = None) -> None:
-    old_ids = bot_messages_by_chat.get(chat_id, [])
-    remaining = []
-    for message_id in old_ids:
-        if message_id == keep_message_id:
-            remaining.append(message_id)
-            continue
-        try:
-            bot.delete_message(chat_id, message_id)
-        except Exception:
-            logger.info("Could not remove an earlier bot message; continuing.")
-    if keep_message_id is not None and keep_message_id not in remaining:
-        remaining.append(keep_message_id)
-    if remaining:
-        bot_messages_by_chat[chat_id] = remaining
-    else:
-        bot_messages_by_chat.pop(chat_id, None)
+# ============ СТАРТ ============
+@router.message(CommandStart())
+async def cmd_start(message: Message, state: FSMContext):
+    await state.clear()
+    name = message.from_user.username or message.from_user.first_name
+    await message.answer(
+        f"Привет! ({name})\nТы тут чтобы поспать в клан NS!",
+        reply_markup=main_menu_kb()
+    )
 
 
-def send_page(chat_id: int, page: str, user=None, remove_reply_keyboard: bool = False):
-    if page == "catalog":
-        page = "product_loka"
-    if page == "home":
-        remove_reply_keyboard = True
-    cleanup_bot_messages(chat_id)
-    text, keyboard, parse_mode = page_content(page, user)
-    removal_message = None
-
-    if remove_reply_keyboard:
-        removal_message = bot.send_message(
-            chat_id,
-            "Открываю раздел…",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-
-    if page == "product_loka":
-        try:
-            sent = send_product_video(chat_id, text, keyboard, parse_mode)
-        except Exception:
-            logger.exception("Could not send the product video; showing product text instead.")
-            sent = bot.send_message(
-                chat_id,
-                text,
-                reply_markup=keyboard,
-                parse_mode=parse_mode,
-            )
-    else:
-        sent = bot.send_message(
-            chat_id,
-            text,
-            reply_markup=keyboard,
-            parse_mode=parse_mode,
-        )
-    remember_bot_message(chat_id, sent.message_id)
-    current_page_by_chat[chat_id] = page
-
-    if removal_message is not None:
-        try:
-            bot.delete_message(chat_id, removal_message.message_id)
-        except Exception:
-            logger.info("Could not remove the temporary keyboard update message.")
-            remember_bot_message(chat_id, removal_message.message_id)
-
-    return sent
+@router.message(F.text == "Отмена")
+async def cancel_any(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Заполнение анкеты отменено.", reply_markup=main_menu_kb())
 
 
-def edit_page(chat_id: int, message_id: int, page: str, user=None):
-    if page == "catalog":
-        page = "product_loka"
-    if page == "home":
-        remember_bot_message(chat_id, message_id)
-        return send_page(chat_id, "home", user)
+# ============ ПОДАЧА АНКЕТЫ — ЧАСТЬ 1 ============
+@router.message(F.text == "Подать анкету")
+async def start_form(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Твой Nickname:", reply_markup=cancel_kb())
+    await state.set_state(Form.nickname)
 
-    if page == "product_loka":
-        remember_bot_message(chat_id, message_id)
-        cleanup_bot_messages(chat_id)
-        return send_page(chat_id, page, user)
 
-    if current_page_by_chat.get(chat_id) == "product_loka":
-        remember_bot_message(chat_id, message_id)
-        cleanup_bot_messages(chat_id)
-        return send_page(chat_id, page, user)
+@router.message(Form.nickname)
+async def form_nickname(message: Message, state: FSMContext):
+    await state.update_data(nickname=message.text)
+    await message.answer("Твой Lvl:")
+    await state.set_state(Form.lvl)
 
-    text, keyboard, parse_mode = page_content(page, user)
+
+@router.message(Form.lvl)
+async def form_lvl(message: Message, state: FSMContext):
+    await state.update_data(lvl=message.text)
+    await message.answer("Есть что-то по донату? (подробно):")
+    await state.set_state(Form.donate)
+
+
+@router.message(Form.donate)
+async def form_donate(message: Message, state: FSMContext):
+    await state.update_data(donate=message.text)
+    await message.answer("Был ли ранее в кланах? Если да, то почему ушёл (если нет: -):")
+    await state.set_state(Form.previous_clans)
+
+
+@router.message(Form.previous_clans)
+async def form_prev(message: Message, state: FSMContext):
+    await state.update_data(previous_clans=message.text)
+    await message.answer("Готов пройти проверку на стрельбу?:")
+    await state.set_state(Form.shooting_test)
+
+
+@router.message(Form.shooting_test)
+async def form_shoot(message: Message, state: FSMContext):
+    await state.update_data(shooting_test=message.text)
+    await message.answer("Принимаешь ли правила клана?")
+    await state.set_state(Form.rules_accept)
+
+
+@router.message(Form.rules_accept)
+async def form_rules(message: Message, state: FSMContext):
+    await state.update_data(rules_accept=message.text)
+    await message.answer(
+        "Часть 1 заполнена. Нажми «Далее» чтобы продолжить или «Назад» чтобы начать заново.",
+        reply_markup=back_next_kb()
+    )
+
+
+@router.callback_query(F.data == "next")
+async def go_next(call: CallbackQuery, state: FSMContext):
+    await call.message.edit_reply_markup(reply_markup=None)
+    await call.message.answer("Имя:")
+    await state.set_state(Form.real_name)
+    await call.answer()
+
+
+@router.callback_query(F.data == "back")
+async def go_back(call: CallbackQuery, state: FSMContext):
+    await call.message.edit_reply_markup(reply_markup=None)
+    await call.message.answer("Хорошо, начнём заново.\n\nТвой Nickname:")
+    await state.set_state(Form.nickname)
+    await call.answer()
+
+
+# ============ ПОДАЧА АНКЕТЫ — ЧАСТЬ 2 ============
+@router.message(Form.real_name)
+async def form_name(message: Message, state: FSMContext):
+    await state.update_data(real_name=message.text)
+    await message.answer("Возраст:")
+    await state.set_state(Form.age)
+
+
+@router.message(Form.age)
+async def form_age(message: Message, state: FSMContext):
+    await state.update_data(age=message.text)
+    await message.answer("Стаж игры:")
+    await state.set_state(Form.experience)
+
+
+@router.message(Form.experience)
+async def form_exp(message: Message, state: FSMContext):
+    await state.update_data(experience=message.text)
+    await message.answer("Почему именно к нам?")
+    await state.set_state(Form.why_us)
+
+
+@router.message(Form.why_us)
+async def form_finish(message: Message, state: FSMContext):
+    await state.update_data(why_us=message.text)
+    data = await state.get_data()
+    await state.clear()
+
+    user = message.from_user
+    username = f"@{user.username}" if user.username else f"(id: {user.id})"
+    app_id = save_application(user.id, username, data)
+
+    await message.answer(
+        "Анкета отправлена на проверку. Терпения 😘",
+        reply_markup=main_menu_kb()
+    )
+
     try:
-        bot.edit_message_text(
-            text,
-            chat_id=chat_id,
-            message_id=message_id,
-            reply_markup=keyboard,
-            parse_mode=parse_mode,
+        await message.bot.send_message(
+            ADMIN_ID,
+            f"📨 Новая анкета #{app_id} от {username}\n"
+            f"Зайди в раздел «Анкеты» в боте."
         )
-    except Exception as error:
-        if "message is not modified" not in str(error).lower():
-            logger.warning("Could not edit a bot page; replacing it.")
-            remember_bot_message(chat_id, message_id)
-            return send_page(chat_id, page, user, remove_reply_keyboard=True)
-
-    cleanup_bot_messages(chat_id, keep_message_id=message_id)
-    current_page_by_chat[chat_id] = page
-    return message_id
+    except Exception as e:
+        logging.warning(f"Не удалось уведомить админа: {e}")
 
 
-def page_before(page: str) -> str:
-    return {
-        "catalog": "home",
-        "product_loka": "home",
-        "about": "home",
-        "terms": "home",
-        "profile": "home",
-        "history_orders": "profile",
-        "history_topups": "profile",
-        "topup_balance": "profile",
-    }.get(page, "home")
+# ============ РАЗДЕЛ "АНКЕТЫ" ============
+@router.message(F.text == "Анкеты")
+async def admin_section(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("⛔ Доступ только для администратора.")
+        return
+    await message.answer("Введите пароль:")
+    await state.set_state(AdminAuth.waiting_password)
 
 
-@bot.message_handler(commands=["start"])
-def cmd_start(message):
-    send_page(message.chat.id, "home", message.from_user)
+@router.message(AdminAuth.waiting_password)
+async def check_password(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        await state.clear()
+        return
+    if message.text.strip() != PASSWORD:
+        await state.clear()
+        await message.answer("❌ Неверный пароль.", reply_markup=main_menu_kb())
+        return
+
+    await state.clear()
+    apps = get_all_pending()
+    if not apps:
+        await message.answer("📭 Новых анкет нет.", reply_markup=main_menu_kb())
+        return
+
+    await message.answer(f"🔓 Авторизация успешна. Анкет: {len(apps)}")
+    for app in apps:
+        await send_application_card(message.bot, message.chat.id, app)
 
 
-@bot.message_handler(commands=["back"])
-def cmd_back(message):
-    chat_id = message.chat.id
-    current_page = current_page_by_chat.get(chat_id, "home")
-    target_page = page_before(current_page)
-    message_id = bot_messages_by_chat.get(chat_id, [])
-    last_message_id = message_id[-1] if message_id else None
+async def send_application_card(bot: Bot, chat_id: int, app):
+    (app_id, user_id, username, nickname, lvl, donate, prev_clans,
+     shooting, rules, real_name, age, exp, why_us, status, created) = app
 
-    if target_page == "home" or last_message_id is None:
-        send_page(
-            chat_id,
-            target_page,
-            message.from_user,
-            remove_reply_keyboard=target_page != "home",
-        )
-    else:
-        edit_page(chat_id, last_message_id, target_page, message.from_user)
-
-
-@bot.message_handler(content_types=["text"])
-def handle_text(message):
-    pages = {
-        "🛍️Каталог": "product_loka",
-        "🏠 О магазине": "about",
-        "👨‍💻 Условия использования": "terms",
-        "👤 Профиль": "profile",
-    }
-    page = pages.get(message.text or "")
-    if page is not None:
-        send_page(message.chat.id, page, message.from_user, remove_reply_keyboard=True)
+    text = (
+        f"📋 <b>Анкета #{app_id}</b>\n"
+        f"👤 {username} (id: <code>{user_id}</code>)\n"
+        f"🕒 {created}\n\n"
+        f"<b>Часть 1</b>\n"
+        f"• Nickname: {nickname}\n"
+        f"• Lvl: {lvl}\n"
+        f"• Донат: {donate}\n"
+        f"• Был в кланах: {prev_clans}\n"
+        f"• Проверка стрельбы: {shooting}\n"
+        f"• Правила: {rules}\n\n"
+        f"<b>Часть 2</b>\n"
+        f"• Имя: {real_name}\n"
+        f"• Возраст: {age}\n"
+        f"• Стаж: {exp}\n"
+        f"• Почему к нам: {why_us}"
+    )
+    await bot.send_message(
+        chat_id, text, parse_mode="HTML",
+        reply_markup=approve_reject_kb(app_id)
+    )
 
 
-@bot.callback_query_handler(func=lambda call: True)
-def callback_query(call):
+# ============ ОДОБРИТЬ / ОТКЛОНИТЬ ============
+@router.callback_query(F.data.startswith("approve:"))
+async def approve_app(call: CallbackQuery):
+    if call.from_user.id != ADMIN_ID:
+        await call.answer("⛔ Нет доступа", show_alert=True)
+        return
+    app_id = int(call.data.split(":")[1])
+    app = get_by_id(app_id)
+    if not app:
+        await call.answer("Анкета не найдена", show_alert=True)
+        return
+
+    set_status(app_id, "approved")
     try:
-        pages = {
-            "catalog": "product_loka",
-            "product:loka": "product_loka",
-            "about": "about",
-            "terms": "terms",
-            "profile": "profile",
-            "history_orders": "history_orders",
-            "history_topups": "history_topups",
-            "topup_balance": "topup_balance",
-            "back_to_profile": "profile",
-        }
-
-        if call.data == "back:catalog":
-            page = "home"
-        elif call.data.startswith("back:"):
-            page = call.data.split(":", 1)[1]
-        else:
-            page = pages.get(call.data)
-
-        allowed_pages = {
-            "home",
-            "catalog",
-            "product_loka",
-            "about",
-            "terms",
-            "profile",
-            "history_orders",
-            "history_topups",
-            "topup_balance",
-        }
-        if page not in allowed_pages:
-            try:
-                bot.answer_callback_query(call.id, "Кнопка устарела. Нажмите /start.", show_alert=True)
-            except Exception:
-                logger.info("Could not acknowledge an expired bot button.")
-            return
-
-        try:
-            bot.answer_callback_query(call.id)
-        except Exception:
-            logger.info("Could not acknowledge a bot button; continuing.")
-
-        edit_page(
-            call.message.chat.id,
-            call.message.message_id,
-            page,
-            call.from_user,
+        await call.bot.send_message(
+            app[1],
+            "Вашу анкету одобрили. Ожидайте пока лидер вам отпишет в личку. "
+            "С уважением клан NS 🫶"
         )
-    except Exception:
-        logger.exception("Failed to handle a bot button.")
+    except Exception as e:
+        logging.warning(f"Не смог написать {app[1]}: {e}")
+
+    await call.message.edit_text(
+        call.message.html_text + "\n\n✅ <b>ОДОБРЕНО</b>",
+        parse_mode="HTML"
+    )
+    await call.answer("Одобрено")
+
+
+@router.callback_query(F.data.startswith("reject:"))
+async def reject_app(call: CallbackQuery):
+    if call.from_user.id != ADMIN_ID:
+        await call.answer("⛔ Нет доступа", show_alert=True)
+        return
+    app_id = int(call.data.split(":")[1])
+    app = get_by_id(app_id)
+    if not app:
+        await call.answer("Анкета не найдена", show_alert=True)
+        return
+
+    set_status(app_id, "rejected")
+    try:
+        await call.bot.send_message(
+            app[1],
+            "К сожалению, вашу анкету отклонили. Спасибо за интерес к клану NS."
+        )
+    except Exception as e:
+        logging.warning(f"Не смог написать {app[1]}: {e}")
+
+    await call.message.edit_text(
+        call.message.html_text + "\n\n❌ <b>ОТКЛОНЕНО</b>",
+        parse_mode="HTML"
+    )
+    await call.answer("Отклонено")
+
+
+# ============ MAIN ============
+async def main():
+    if not BOT_TOKEN:
+        raise SystemExit("❌ Не задан BOT_TOKEN в Environment Variables")
+    if ADMIN_ID == 0:
+        raise SystemExit("❌ Не задан ADMIN_ID в Environment Variables")
+
+    init_db()
+    bot = Bot(token=BOT_TOKEN)
+    dp = Dispatcher(storage=MemoryStorage())
+    dp.include_router(router)
+    logging.info("Бот запущен")
+    await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
-    logger.info("Bot started.")
-    bot.infinity_polling()
+    asyncio.run(main())
