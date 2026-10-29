@@ -98,6 +98,7 @@ def main_inline_keyboard() -> InlineKeyboardMarkup:
         ("🏠 О магазине", "about"),
         ("👨‍💻 Условия использования", "terms"),
         ("👤 Профиль", "profile"),
+        ("🚨Поддержка", "support"),
     )
 
 
@@ -139,6 +140,13 @@ def page_content(page: str, user=None):
             "💰 Цена: 100₽ // 150⭐️",
             inline_keyboard(("🔙 Назад", "back:home")),
             "HTML",
+        )
+
+    if page == "support":
+        return (
+            "Предложение по улучшению / Тех.Поддержка - @pavell_durrovvv",
+            inline_keyboard(("🔙 Назад", "back:home")),
+            None,
         )
 
     if page == "about":
@@ -315,6 +323,7 @@ def page_before(page: str) -> str:
         "product_loka": "home",
         "about": "home",
         "terms": "home",
+        "support": "home",
         "profile": "home",
         "history_orders": "profile",
         "history_topups": "profile",
@@ -353,6 +362,7 @@ def handle_text(message):
         "🏠 О магазине": "about",
         "👨‍💻 Условия использования": "terms",
         "👤 Профиль": "profile",
+        "🚨Поддержка": "support",
     }
     page = pages.get(message.text or "")
     if page is not None:
@@ -367,6 +377,7 @@ def callback_query(call):
             "product:loka": "product_loka",
             "about": "about",
             "terms": "terms",
+            "support": "support",
             "profile": "profile",
             "history_orders": "history_orders",
             "history_topups": "history_topups",
@@ -387,6 +398,7 @@ def callback_query(call):
             "product_loka",
             "about",
             "terms",
+            "support",
             "profile",
             "history_orders",
             "history_topups",
