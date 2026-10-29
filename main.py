@@ -323,6 +323,7 @@ def page_before(page: str) -> str:
         "product_loka": "home",
         "about": "home",
         "terms": "home",
+        "support": "home",
         "profile": "home",
         "history_orders": "profile",
         "history_topups": "profile",
@@ -360,6 +361,7 @@ def handle_text(message):
         "🛍️Каталог": "product_loka",
         "🏠 О магазине": "about",
         "👨‍💻 Условия использования": "terms",
+        "🚨 Поддержка": "support",
         "👤 Профиль": "profile",
     }
     page = pages.get(message.text or "")
@@ -375,6 +377,7 @@ def callback_query(call):
             "product:loka": "product_loka",
             "about": "about",
             "terms": "terms",
+            "support": "support",
             "profile": "profile",
             "history_orders": "history_orders",
             "history_topups": "history_topups",
@@ -395,6 +398,7 @@ def callback_query(call):
             "product_loka",
             "about",
             "terms",
+            "support",
             "profile",
             "history_orders",
             "history_topups",
