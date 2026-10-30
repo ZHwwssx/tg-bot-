@@ -1,390 +1,302 @@
 import asyncio
-import logging
+import json
 import os
-import sqlite3
-from datetime import datetime
-
-from aiogram import Bot, Dispatcher, F, Router
-from aiogram.filters import CommandStart
+from aiogram import Bot, Dispatcher, F
+from aiogram.filters import Command
+from aiogram.types import (
+    Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import (
-    Message, CallbackQuery,
-    ReplyKeyboardMarkup, KeyboardButton,
-    InlineKeyboardMarkup, InlineKeyboardButton
+
+# ==== НАСТРОЙКИ ====
+BOT_TOKEN = "ВАШ_ТОКЕН_ЗДЕСЬ"
+ADMIN_PASSWORD = "7374"
+ANKETY_FILE = "ankety.json"
+
+
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(storage=MemoryStorage())
+
+
+# ==== СОСТОЯНИЯ ====
+class Anketa(StatesGroup):
+    nick = State()
+    name = State()
+    age = State()
+    lvl = State()
+    time_in_game = State()
+    donate = State()
+    microphone = State()
+    why_us = State()
+    what_do = State()
+    qualities = State()
+    pvp = State()
+    other_clans = State()
+
+
+class AdminCheck(StatesGroup):
+    password = State()
+
+
+# ==== КЛАВИАТУРЫ ====
+main_kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📝 Заполнить анкету")],
+        [KeyboardButton(text="📂 Анкеты")],
+    ],
+    resize_keyboard=True
 )
 
-# Веб-сервер для Webhook и пингов
-from aiohttp import web
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+cancel_kb = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="❌ Отмена")]],
+    resize_keyboard=True
+)
 
-# ============ НАСТРОЙКИ ============
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-PASSWORD = os.getenv("PASSWORD", "7374")
-DB_PATH = os.getenv("DB_PATH", "applications.db")
 
-# Render автоматически выдает переменную RENDER_EXTERNAL_URL
-# (например, https://tg-bot-k8kg.onrender.com)
-WEBHOOK_HOST = os.getenv("RENDER_EXTERNAL_URL", "https://tg-bot-k8kg.onrender.com")
-WEBHOOK_PATH = "/webhook"
-WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+# ==== ХРАНИЛИЩЕ ====
+def load_ankety():
+    if os.path.exists(ANKETY_FILE):
+        with open(ANKETY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
 
-logging.basicConfig(level=logging.INFO)
-router = Router()
 
-# ============ БАЗА ДАННЫХ ============
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS applications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            username TEXT,
-            nickname TEXT,
-            lvl TEXT,
-            donate TEXT,
-            previous_clans TEXT,
-            shooting_test TEXT,
-            rules_accept TEXT,
-            real_name TEXT,
-            age TEXT,
-            experience TEXT,
-            why_us TEXT,
-            status TEXT DEFAULT 'pending',
-            created_at TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
+def save_anketa(data: dict):
+    ankety = load_ankety()
+    ankety.append(data)
+    with open(ANKETY_FILE, "w", encoding="utf-8") as f:
+        json.dump(ankety, f, ensure_ascii=False, indent=2)
 
-def save_application(user_id, username, data: dict) -> int:
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO applications
-        (user_id, username, nickname, lvl, donate, previous_clans,
-         shooting_test, rules_accept, real_name, age, experience, why_us, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        user_id, username,
-        data.get("nickname"), data.get("lvl"), data.get("donate"),
-        data.get("previous_clans"), data.get("shooting_test"),
-        data.get("rules_accept"), data.get("real_name"),
-        data.get("age"), data.get("experience"), data.get("why_us"),
-        datetime.utcnow().isoformat()
-    ))
-    app_id = cur.lastrowid
-    conn.commit()
-    conn.close()
-    return app_id
 
-def get_all_pending():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM applications WHERE status = 'pending' ORDER BY id DESC")
-    rows = cur.fetchall()
-    conn.close()
-    return rows
-
-def get_by_id(app_id):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM applications WHERE id = ?", (app_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row
-
-def set_status(app_id, status: str):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("UPDATE applications SET status = ? WHERE id = ?", (status, app_id))
-    conn.commit()
-    conn.close()
-
-# ============ СОСТОЯНИЯ ============
-class Form(StatesGroup):
-    nickname = State()
-    lvl = State()
-    donate = State()
-    previous_clans = State()
-    shooting_test = State()
-    rules_accept = State()
-    real_name = State()
-    age = State()
-    experience = State()
-    why_us = State()
-
-class AdminAuth(StatesGroup):
-    waiting_password = State()
-
-# ============ КЛАВИАТУРЫ ============
-def main_menu_kb():
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="Подать анкету")], [KeyboardButton(text="Анкеты")]],
-        resize_keyboard=True
-    )
-
-def cancel_kb():
-    return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Отмена")]], resize_keyboard=True)
-
-def back_next_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="⬅️ Назад", callback_data="back"),
-        InlineKeyboardButton(text="Далее ➡️", callback_data="next"),
-    ]])
-
-def approve_reject_kb(app_id: int):
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve:{app_id}"),
-        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject:{app_id}"),
-    ]])
-
-# ============ ХЕНДЛЕРЫ (БЕЗ ИЗМЕНЕНИЙ) ============
-@router.message(CommandStart())
+# ==== СТАРТ ====
+@dp.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
-    name = message.from_user.username or message.from_user.first_name
-    await message.answer(f"Привет! ({name})\nТы тут чтобы поспать в клан NS!", reply_markup=main_menu_kb())
-
-@router.message(F.text == "Отмена")
-async def cancel_any(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("Заполнение анкеты отменено.", reply_markup=main_menu_kb())
-
-@router.message(F.text == "Подать анкету")
-async def start_form(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("Твой Nickname:", reply_markup=cancel_kb())
-    await state.set_state(Form.nickname)
-
-@router.message(Form.nickname)
-async def form_nickname(message: Message, state: FSMContext):
-    await state.update_data(nickname=message.text)
-    await message.answer("Твой Lvl:")
-    await state.set_state(Form.lvl)
-
-@router.message(Form.lvl)
-async def form_lvl(message: Message, state: FSMContext):
-    await state.update_data(lvl=message.text)
-    await message.answer("Есть что-то по донату? (подробно):")
-    await state.set_state(Form.donate)
-
-@router.message(Form.donate)
-async def form_donate(message: Message, state: FSMContext):
-    await state.update_data(donate=message.text)
-    await message.answer("Был ли ранее в кланах? Если да, то почему ушёл (если нет: -):")
-    await state.set_state(Form.previous_clans)
-
-@router.message(Form.previous_clans)
-async def form_prev(message: Message, state: FSMContext):
-    await state.update_data(previous_clans=message.text)
-    await message.answer("Готов пройти проверку на стрельбу?:")
-    await state.set_state(Form.shooting_test)
-
-@router.message(Form.shooting_test)
-async def form_shoot(message: Message, state: FSMContext):
-    await state.update_data(shooting_test=message.text)
-    await message.answer("Принимаешь ли правила клана?")
-    await state.set_state(Form.rules_accept)
-
-@router.message(Form.rules_accept)
-async def form_rules(message: Message, state: FSMContext):
-    await state.update_data(rules_accept=message.text)
-    await message.answer("Часть 1 заполнена. Нажми «Далее» чтобы продолжить.", reply_markup=back_next_kb())
-
-@router.callback_query(F.data == "next")
-async def go_next(call: CallbackQuery, state: FSMContext):
-    await call.message.edit_reply_markup(reply_markup=None)
-    await call.message.answer("Имя:")
-    await state.set_state(Form.real_name)
-    await call.answer()
-
-@router.callback_query(F.data == "back")
-async def go_back(call: CallbackQuery, state: FSMContext):
-    await call.message.edit_reply_markup(reply_markup=None)
-    await call.message.answer("Хорошо, начнём заново.\n\nТвой Nickname:")
-    await state.set_state(Form.nickname)
-    await call.answer()
-
-@router.message(Form.real_name)
-async def form_name(message: Message, state: FSMContext):
-    await state.update_data(real_name=message.text)
-    await message.answer("Возраст:")
-    await state.set_state(Form.age)
-
-@router.message(Form.age)
-async def form_age(message: Message, state: FSMContext):
-    await state.update_data(age=message.text)
-    await message.answer("Стаж игры:")
-    await state.set_state(Form.experience)
-
-@router.message(Form.experience)
-async def form_exp(message: Message, state: FSMContext):
-    await state.update_data(experience=message.text)
-    await message.answer("Почему именно к нам?")
-    await state.set_state(Form.why_us)
-
-@router.message(Form.why_us)
-async def form_finish(message: Message, state: FSMContext):
-    await state.update_data(why_us=message.text)
-    data = await state.get_data()
-    await state.clear()
-
-    user = message.from_user
-    username = f"@{user.username}" if user.username else f"(id: {user.id})"
-    app_id = save_application(user.id, username, data)
-
-    await message.answer("Анкета отправлена на проверку. Терпения 😘", reply_markup=main_menu_kb())
-
-    try:
-        await message.bot.send_message(ADMIN_ID, f"📨 Новая анкета #{app_id} от {username}\nЗайди в раздел «Анкеты» в боте.")
-    except Exception as e:
-        logging.warning(f"Не удалось уведомить админа: {e}")
-
-@router.message(F.text == "Анкеты")
-async def admin_section(message: Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("⛔ Доступ только для администратора.")
-        return
-    await message.answer("Введите пароль:")
-    await state.set_state(AdminAuth.waiting_password)
-
-@router.message(AdminAuth.waiting_password)
-async def check_password(message: Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID:
-        await state.clear()
-        return
-    if message.text.strip() != PASSWORD:
-        await state.clear()
-        await message.answer("❌ Неверный пароль.", reply_markup=main_menu_kb())
-        return
-
-    await state.clear()
-    apps = get_all_pending()
-    if not apps:
-        await message.answer("📭 Новых анкет нет.", reply_markup=main_menu_kb())
-        return
-
-    await message.answer(f"🔓 Авторизация успешна. Анкет: {len(apps)}")
-    for app in apps:
-        await send_application_card(message.bot, message.chat.id, app)
-
-async def send_application_card(bot: Bot, chat_id: int, app):
-    (app_id, user_id, username, nickname, lvl, donate, prev_clans,
-     shooting, rules, real_name, age, exp, why_us, status, created) = app
-
-    text = (
-        f"📋 <b>Анкета #{app_id}</b>\n"
-        f"👤 {username} (id: <code>{user_id}</code>)\n"
-        f"🕒 {created}\n\n"
-        f"<b>Часть 1</b>\n"
-        f"• Nickname: {nickname}\n"
-        f"• Lvl: {lvl}\n"
-        f"• Донат: {donate}\n"
-        f"• Был в кланах: {prev_clans}\n"
-        f"• Проверка стрельбы: {shooting}\n"
-        f"• Правила: {rules}\n\n"
-        f"<b>Часть 2</b>\n"
-        f"• Имя: {real_name}\n"
-        f"• Возраст: {age}\n"
-        f"• Стаж: {exp}\n"
-        f"• Почему к нам: {why_us}"
+    await message.answer(
+        "👋 Добро пожаловать в <b>NaSofte</b>!\n\n"
+        "Нажми кнопку ниже, чтобы заполнить анкету.",
+        parse_mode="HTML",
+        reply_markup=main_kb
     )
-    await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=approve_reject_kb(app_id))
 
-@router.callback_query(F.data.startswith("approve:"))
-async def approve_app(call: CallbackQuery):
-    if call.from_user.id != ADMIN_ID:
-        await call.answer("⛔ Нет доступа", show_alert=True)
+
+# ==== ЗАПОЛНЕНИЕ АНКЕТЫ ====
+@dp.message(F.text == "📝 Заполнить анкету")
+async def start_anketa(message: Message, state: FSMContext):
+    await state.set_state(Anketa.nick)
+    await message.answer(
+        "📋 <b>Анкета в клан NaSofte</b>\n\n"
+        "• <b>Ник в игре:</b>",
+        parse_mode="HTML",
+        reply_markup=cancel_kb
+    )
+
+
+@dp.message(Anketa.nick)
+async def a_nick(message: Message, state: FSMContext):
+    if message.text == "❌ Отмена":
+        await state.clear()
+        await message.answer("Отменено.", reply_markup=main_kb)
         return
-    app_id = int(call.data.split(":")[1])
-    app = get_by_id(app_id)
-    if not app:
-        await call.answer("Анкета не найдена", show_alert=True)
+    await state.update_data(nick=message.text)
+    await state.set_state(Anketa.name)
+    await message.answer("• <b>Как зовут?</b>", parse_mode="HTML")
+
+
+@dp.message(Anketa.name)
+async def a_name(message: Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await state.set_state(Anketa.age)
+    await message.answer("• <b>Сколько лет?</b>", parse_mode="HTML")
+
+
+@dp.message(Anketa.age)
+async def a_age(message: Message, state: FSMContext):
+    await state.update_data(age=message.text)
+    await state.set_state(Anketa.lvl)
+    await message.answer("• <b>LVL:</b>", parse_mode="HTML")
+
+
+@dp.message(Anketa.lvl)
+async def a_lvl(message: Message, state: FSMContext):
+    await state.update_data(lvl=message.text)
+    await state.set_state(Anketa.time_in_game)
+    await message.answer(
+        "• <b>Сколько времени уделяешь игре?</b>",
+        parse_mode="HTML"
+    )
+
+
+@dp.message(Anketa.time_in_game)
+async def a_time(message: Message, state: FSMContext):
+    await state.update_data(time_in_game=message.text)
+    await state.set_state(Anketa.donate)
+    await message.answer(
+        "• <b>Есть что-то по донату?</b> (если да, то что?)",
+        parse_mode="HTML"
+    )
+
+
+@dp.message(Anketa.donate)
+async def a_donate(message: Message, state: FSMContext):
+    await state.update_data(donate=message.text)
+    await state.set_state(Anketa.microphone)
+    await message.answer(
+        "• <b>Пользуешься микрофоном в игре?</b>",
+        parse_mode="HTML"
+    )
+
+
+@dp.message(Anketa.microphone)
+async def a_mic(message: Message, state: FSMContext):
+    await state.update_data(microphone=message.text)
+    await state.set_state(Anketa.why_us)
+    await message.answer(
+        "• <b>Почему именно к нам?</b>",
+        parse_mode="HTML"
+    )
+
+
+@dp.message(Anketa.why_us)
+async def a_why(message: Message, state: FSMContext):
+    await state.update_data(why_us=message.text)
+    await state.set_state(Anketa.what_do)
+    await message.answer(
+        "• <b>Чем в основном занимаешься в игре?</b> (подробно)",
+        parse_mode="HTML"
+    )
+
+
+@dp.message(Anketa.what_do)
+async def a_what(message: Message, state: FSMContext):
+    await state.update_data(what_do=message.text)
+    await state.set_state(Anketa.qualities)
+    await message.answer(
+        "• <b>Расскажи о своих качествах игры:</b>",
+        parse_mode="HTML"
+    )
+
+
+@dp.message(Anketa.qualities)
+async def a_qualities(message: Message, state: FSMContext):
+    await state.update_data(qualities=message.text)
+    await state.set_state(Anketa.pvp)
+    await message.answer(
+        "• <b>Готов ли пройти отбор по ПВП?</b>",
+        parse_mode="HTML"
+    )
+
+
+@dp.message(Anketa.pvp)
+async def a_pvp(message: Message, state: FSMContext):
+    await state.update_data(pvp=message.text)
+    await state.set_state(Anketa.other_clans)
+    await message.answer(
+        "• <b>Был в других кланах?</b> Если да — почему теперь один?",
+        parse_mode="HTML"
+    )
+
+
+@dp.message(Anketa.other_clans)
+async def a_other(message: Message, state: FSMContext):
+    await state.update_data(other_clans=message.text)
+    data = await state.get_data()
+
+    # юзернейм и ID отправителя
+    username = f"@{message.from_user.username}" if message.from_user.username else "нет username"
+    user_id = message.from_user.id
+
+    # сохраняем анкету
+    record = {
+        "user_id": user_id,
+        "username": username,
+        **data
+    }
+    save_anketa(record)
+
+    # показываем пользователю итог
+    text = (
+        "✅ <b>Анкета отправлена!</b>\n\n"
+        f"👤 Отправитель: {username}\n"
+        f"🆔 ID: <code>{user_id}</code>\n\n"
+        f"🎮 Ник: {data['nick']}\n"
+        f"🙋 Имя: {data['name']}\n"
+        f"🎂 Возраст: {data['age']}\n"
+        f"⭐ LVL: {data['lvl']}\n"
+        f"⏱ Время в игре: {data['time_in_game']}\n"
+        f"💰 Донат: {data['donate']}\n"
+        f"🎤 Микрофон: {data['microphone']}\n"
+        f"❓ Почему к нам: {data['why_us']}\n"
+        f"🎯 Чем занимается: {data['what_do']}\n"
+        f"💪 Качества: {data['qualities']}\n"
+        f"⚔️ Готов к ПВП-отбору: {data['pvp']}\n"
+        f"🏰 Другие кланы: {data['other_clans']}"
+    )
+    await message.answer(text, parse_mode="HTML", reply_markup=main_kb)
+    await state.clear()
+
+
+# ==== ПРОСМОТР АНКЕТ (С ПАРОЛЕМ) ====
+@dp.message(F.text == "📂 Анкеты")
+async def ask_password(message: Message, state: FSMContext):
+    await state.set_state(AdminCheck.password)
+    await message.answer(
+        "🔒 Введите пароль для просмотра анкет:",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
+
+@dp.message(AdminCheck.password)
+async def check_password(message: Message, state: FSMContext):
+    if message.text != ADMIN_PASSWORD:
+        await message.answer(
+            "❌ Неверный пароль.",
+            reply_markup=main_kb
+        )
+        await state.clear()
         return
 
-    set_status(app_id, "approved")
-    try:
-        await call.bot.send_message(app[1], "Вашу анкету одобрили. Ожидайте пока лидер вам отпишет в личку. С уважением клан NS 🫶")
-    except Exception as e:
-        logging.warning(f"Не смог написать {app[1]}: {e}")
+    ankety = load_ankety()
+    await state.clear()
 
-    await call.message.edit_text(call.message.html_text + "\n\n✅ <b>ОДОБРЕНО</b>", parse_mode="HTML")
-    await call.answer("Одобрено")
-
-@router.callback_query(F.data.startswith("reject:"))
-async def reject_app(call: CallbackQuery):
-    if call.from_user.id != ADMIN_ID:
-        await call.answer("⛔ Нет доступа", show_alert=True)
-        return
-    app_id = int(call.data.split(":")[1])
-    app = get_by_id(app_id)
-    if not app:
-        await call.answer("Анкета не найдена", show_alert=True)
+    if not ankety:
+        await message.answer("📭 Анкет пока нет.", reply_markup=main_kb)
         return
 
-    set_status(app_id, "rejected")
-    try:
-        await call.bot.send_message(app[1], "К сожалению, вашу анкету отклонили. Спасибо за интерес к клану NS.")
-    except Exception as e:
-        logging.warning(f"Не смог написать {app[1]}: {e}")
+    await message.answer(
+        f"📂 <b>Всего анкет: {len(ankety)}</b>",
+        parse_mode="HTML",
+        reply_markup=main_kb
+    )
 
-    await call.message.edit_text(call.message.html_text + "\n\n❌ <b>ОТКЛОНЕНО</b>", parse_mode="HTML")
-    await call.answer("Отклонено")
+    for i, a in enumerate(ankety, start=1):
+        text = (
+            f"<b>Анкета #{i}</b>\n"
+            f"👤 Отправитель: {a.get('username', 'нет')}\n"
+            f"🆔 ID: <code>{a.get('user_id', '?')}</code>\n\n"
+            f"🎮 Ник: {a.get('nick', '-')}\n"
+            f"🙋 Имя: {a.get('name', '-')}\n"
+            f"🎂 Возраст: {a.get('age', '-')}\n"
+            f"⭐ LVL: {a.get('lvl', '-')}\n"
+            f"⏱ Время в игре: {a.get('time_in_game', '-')}\n"
+            f"💰 Донат: {a.get('donate', '-')}\n"
+            f"🎤 Микрофон: {a.get('microphone', '-')}\n"
+            f"❓ Почему к нам: {a.get('why_us', '-')}\n"
+            f"🎯 Чем занимается: {a.get('what_do', '-')}\n"
+            f"💪 Качества: {a.get('qualities', '-')}\n"
+            f"⚔️ ПВП-отбор: {a.get('pvp', '-')}\n"
+            f"🏰 Другие кланы: {a.get('other_clans', '-')}"
+        )
+        await message.answer(text, parse_mode="HTML")
 
 
-# ============ ЗАПУСК ВЕБ-СЕРВЕРА И БОТА ============
-async def on_startup(bot: Bot):
-    # Устанавливаем Webhook при запуске
-    await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
-    logging.info(f"Webhook установлен на {WEBHOOK_URL}")
+# ==== ЗАПУСК ====
+async def main():
+    print("Бот NaSofte запущен...")
+    await dp.start_polling(bot)
 
-async def on_shutdown(bot: Bot):
-    # Удаляем Webhook при выключении
-    await bot.delete_webhook()
-    logging.info("Webhook удален")
-
-async def handle_ping(request):
-    # Этот ответ увидит UptimeRobot и поймет, что сервис жив
-    return web.Response(text="Bot is alive!")
-
-def main():
-    if not BOT_TOKEN:
-        raise SystemExit("❌ Не задан BOT_TOKEN в Environment Variables")
-    if ADMIN_ID == 0:
-        raise SystemExit("❌ Не задан ADMIN_ID в Environment Variables")
-
-    init_db()
-
-    bot = Bot(token=BOT_TOKEN)
-    dp = Dispatcher(storage=MemoryStorage())
-    dp.include_router(router)
-
-    # Настройка событий запуска/остановки
-    dp.startup.register(on_startup)
-    dp.shutdown.register(on_shutdown)
-
-    # Создаем веб-приложение aiohttp
-    app = web.Application()
-
-    # Регистрируем путь для Webhook от Telegram
-    webhook_requests_handler = SimpleRequestHandler(dispatcher=dp, bot=bot)
-    webhook_requests_handler.register(app, path=WEBHOOK_PATH)
-
-    # Регистрируем путь для пингов UptimeRobot (главная страница)
-    app.router.add_get("/", handle_ping)
-
-    # Связываем aiogram и aiohttp
-    setup_application(app, dp, bot=bot)
-
-    # Render автоматически передает порт в переменную PORT
-    port = int(os.getenv("PORT", 8080))
-    
-    logging.info(f"Запуск веб-сервера на порту {port}")
-    web.run_app(app, host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
